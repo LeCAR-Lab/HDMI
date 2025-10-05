@@ -7,9 +7,9 @@ hydra:
 headless: true
 exp_name: ${oc.select:task.name,test}-${oc.select:algo.name,none}
 
-app:
-  headless: ${..headless}
-  enable_cameras: ${..eval_render}
+# app:
+#   headless: ${..headless}
+#   enable_cameras: ${..eval_render}
 
 # total_frames: 300_000_000
 total_frames: 150_000_000

@@ -15,7 +15,7 @@ from tqdm import tqdm
 from setproctitle import setproctitle
 
 import active_adaptation as aa
-from isaaclab.app import AppLauncher
+import mjlab
 # from active_adaptation.utils.torchrl import SyncDataCollector
 from torchrl.envs.utils import set_exploration_type, ExplorationType
 from tensordict.nn import TensorDictModuleBase
@@ -38,12 +38,6 @@ def main(cfg: DictConfig):
     OmegaConf.set_struct(cfg, False)
     
     print(f"is_distributed: {aa.is_distributed()}, local_rank: {aa.get_local_rank()}/{aa.get_world_size()}")
-    app_launcher = AppLauncher(
-        OmegaConf.to_container(cfg.app),
-        distributed=aa.is_distributed(),
-        device=f"cuda:{aa.get_local_rank()}"
-    )
-    simulation_app = app_launcher.app
 
     run = wandb.init(
         job_type=cfg.wandb.job_type,
@@ -198,7 +192,6 @@ def main(cfg: DictConfig):
     wandb.finish()
     os._exit(0)
     env.close()
-    simulation_app.close()
 
     run_id = run.id
     project = run.project

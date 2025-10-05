@@ -9,7 +9,7 @@ from active_adaptation.utils.math import (
 
 from .base import Command
 from active_adaptation.envs.mdp import Reward as BaseReward, Observation as BaseObservation, Termination as BaseTermination
-from isaaclab.utils.math import sample_uniform, quat_apply_inverse
+from mjlab.third_party.isaaclab.isaaclab.utils.math import sample_uniform, quat_apply_inverse
 
 
 class LocomotionCommand(Command):
@@ -74,14 +74,14 @@ class LocomotionCommand(Command):
             self.asset.write_joint_position_to_sim(joint_pos, env_ids=env_ids)
             self.asset.write_joint_velocity_to_sim(joint_vel, env_ids=env_ids)
 
-            root_pos_w = motion_data.body_pos_w[:, self.root_idx] + self.env.scene.env_origins[env_ids]
-            root_quat_w = motion_data.body_quat_w[:, self.root_idx]
-            root_lin_vel_w = motion_data.body_lin_vel_w[:, self.root_idx]
-            root_ang_vel_w = motion_data.body_ang_vel_w[:, self.root_idx]
-            root_pos_w[..., 2] += self.lift_height
+            root_link_pos_w = motion_data.body_pos_w[:, self.root_idx] + self.env.scene.env_origins[env_ids]
+            root_link_quat_w = motion_data.body_quat_w[:, self.root_idx]
+            root_com_lin_vel_w = motion_data.body_lin_vel_w[:, self.root_idx]
+            root_com_ang_vel_w = motion_data.body_ang_vel_w[:, self.root_idx]
+            root_link_pos_w[..., 2] += self.lift_height
 
-            root_lin_vel_b = quat_apply_inverse(root_quat_w, root_lin_vel_w)
-            root_ang_vel_b = quat_apply_inverse(root_quat_w, root_ang_vel_w)
+            root_lin_vel_b = quat_apply_inverse(root_link_quat_w, root_com_lin_vel_w)
+            root_ang_vel_b = quat_apply_inverse(root_link_quat_w, root_com_ang_vel_w)
             
             root_lin_vel_b[..., 0].clamp_(min=self.linvel_x_range[0], max=self.linvel_x_range[1])
             root_lin_vel_b[..., 1].clamp_(min=self.linvel_y_range[0], max=self.linvel_y_range[1])
@@ -91,10 +91,10 @@ class LocomotionCommand(Command):
             root_ang_vel_b[..., 1].zero_()
             root_ang_vel_b[..., 2].clamp_(min=self.angvel_range[0], max=self.angvel_range[1])
             
-            root_lin_vel_w = quat_rotate(root_quat_w, root_lin_vel_b)
-            root_ang_vel_w = quat_rotate(root_quat_w, root_ang_vel_b)
+            root_com_lin_vel_w = quat_rotate(root_link_quat_w, root_lin_vel_b)
+            root_com_ang_vel_w = quat_rotate(root_link_quat_w, root_ang_vel_b)
 
-            root_state_w = torch.cat([root_pos_w, root_quat_w, root_lin_vel_w, root_ang_vel_w], dim=-1)
+            root_state_w = torch.cat([root_link_pos_w, root_link_quat_w, root_com_lin_vel_w, root_com_ang_vel_w], dim=-1)
             self.asset.write_root_state_to_sim(root_state_w, env_ids=env_ids)
             
             # set command to match current state
@@ -186,7 +186,7 @@ class LocomotionCommand(Command):
 
     def debug_draw(self):
         if self.env.backend == "isaac":
-            command_lin_vel_w = quat_rotate(yaw_quat(self.asset.data.root_quat_w), self.command_linvel)
+            command_lin_vel_w = quat_rotate(yaw_quat(self.asset.data.root_link_quat_w), self.command_linvel)
             head_pos_w = self.asset.data.root_link_pos_w + torch.tensor([0.0, 0.0, 0.4], device=self.device)
             self.env.debug_draw.vector(
                 head_pos_w,
@@ -230,8 +230,8 @@ class track_lin_vel(LocomotionReward):
         self.sigma = sigma
 
     def compute(self):
-        robot_linvel_w = self.command_manager.asset.data.root_lin_vel_w
-        robot_quat_w = self.command_manager.asset.data.root_quat_w
+        robot_linvel_w = self.command_manager.asset.data.root_com_lin_vel_w
+        robot_quat_w = self.command_manager.asset.data.root_link_quat_w
         
         # Transform command velocity to world frame
         command_linvel_w = quat_rotate(yaw_quat(robot_quat_w), self.command_manager.command_linvel)
@@ -247,7 +247,7 @@ class track_ang_vel(LocomotionReward):
         self.sigma = sigma
 
     def compute(self):
-        robot_angvel_w = self.command_manager.asset.data.root_ang_vel_w[:, 2:3]  # z component
+        robot_angvel_w = self.command_manager.asset.data.root_com_ang_vel_w[:, 2:3]  # z component
         command_angvel = self.command_manager.command_angvel
         
         # Compute tracking error
@@ -273,9 +273,9 @@ class cum_lin_vel_error(LocomotionTermination):
     
     def update(self):
         # Compute current error
-        robot_linvel_w = self.command_manager.asset.data.root_lin_vel_w
+        robot_linvel_w = self.command_manager.asset.data.root_com_lin_vel_w
         command_linvel_w = quat_rotate(
-            yaw_quat(self.command_manager.asset.data.root_quat_w), 
+            yaw_quat(self.command_manager.asset.data.root_link_quat_w), 
             self.command_manager.command_linvel
         )
         
@@ -300,7 +300,7 @@ class cum_ang_vel_error(LocomotionTermination):
     
     def update(self):
         # Compute current error
-        robot_angvel_w = self.command_manager.asset.data.root_ang_vel_w[:, 2:3]  # z component
+        robot_angvel_w = self.command_manager.asset.data.root_com_ang_vel_w[:, 2:3]  # z component
         command_angvel = self.command_manager.command_angvel
         
         angvel_error = (robot_angvel_w - command_angvel).squeeze(-1)
@@ -320,15 +320,15 @@ class cum_ang_vel_error(LocomotionTermination):
 # class command_lin_vel_b_motion(TrackObservation):
 #     """Linear velocity in robot body frame for motion tracking"""
 #     def compute(self):
-#         ref_lin_vel_w = self.command_manager.ref_root_lin_vel_w
-#         robot_quat_w = self.command_manager.robot_root_quat_w
+#         ref_lin_vel_w = self.command_manager.ref_root_com_lin_vel_w
+#         robot_quat_w = self.command_manager.robot_root_link_quat_w
 #         ref_lin_vel_b = quat_apply_inverse(yaw_quat(robot_quat_w), ref_lin_vel_w)
 #         return ref_lin_vel_b[:, :2]
 
 # class command_ang_vel_b_motion(TrackObservation):
 #     """Angular velocity in robot body frame for motion tracking"""
 #     def compute(self):
-#         ref_ang_vel = self.command_manager.ref_root_ang_vel_w[:, 2:3]  # z component
+#         ref_ang_vel = self.command_manager.ref_root_com_ang_vel_w[:, 2:3]  # z component
 #         return ref_ang_vel
 
 # class track_lin_vel_motion(TrackReward):
@@ -338,8 +338,8 @@ class cum_ang_vel_error(LocomotionTermination):
 #         self.sigma = sigma
 
 #     def compute(self):
-#         robot_linvel_w = self.command_manager.asset.data.root_lin_vel_w
-#         ref_lin_vel_w = self.command_manager.ref_root_lin_vel_w
+#         robot_linvel_w = self.command_manager.asset.data.root_com_lin_vel_w
+#         ref_lin_vel_w = self.command_manager.ref_root_com_lin_vel_w
         
 #         # Compute tracking error
 #         linvel_error = (robot_linvel_w - ref_lin_vel_w).norm(dim=-1)
@@ -352,8 +352,8 @@ class cum_ang_vel_error(LocomotionTermination):
 #         self.sigma = sigma
 
 #     def compute(self):
-#         robot_angvel_w = self.command_manager.asset.data.root_ang_vel_w[:, 2:3]  # z component
-#         ref_ang_vel_w = self.command_manager.ref_root_ang_vel_w[:, 2:3]
+#         robot_angvel_w = self.command_manager.asset.data.root_com_ang_vel_w[:, 2:3]  # z component
+#         ref_ang_vel_w = self.command_manager.ref_root_com_ang_vel_w[:, 2:3]
         
 #         # Compute tracking error
 #         angvel_error = (robot_angvel_w - ref_ang_vel_w).abs()

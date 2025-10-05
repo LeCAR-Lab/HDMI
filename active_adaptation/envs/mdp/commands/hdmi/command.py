@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 import torch
 import numpy as np
-from isaaclab.utils.math import sample_uniform, quat_from_euler_xyz, quat_mul, quat_apply, quat_apply_inverse
+from mjlab.third_party.isaaclab.isaaclab.utils.math import sample_uniform, quat_from_euler_xyz, quat_mul, quat_apply, quat_apply_inverse
 from tensordict import TensorDict
 from active_adaptation.utils.math import batchify
 quat_apply = batchify(quat_apply)
@@ -180,6 +180,7 @@ class RobotTracking(Command):
 
         self.asset.write_root_link_pose_to_sim(torch.cat([positions, orientations], dim=-1), env_ids=env_ids)
         self.asset.write_root_com_velocity_to_sim(velocities, env_ids=env_ids)
+        # self.asset.write_root_link_velocity_to_sim(velocities, env_ids=env_ids)
 
         init_joint_pos = motion.joint_pos[:, self.asset_joint_idx_motion]
         init_joint_vel = motion.joint_vel[:, self.asset_joint_idx_motion]
@@ -260,30 +261,30 @@ class RobotTracking(Command):
         self.ref_root_ang_vel_future_w = self.future_ref_motion.body_ang_vel_w[..., self.root_body_idx_motion, :]
 
         # Reward: current robot body and joint states
-        self.robot_body_pos_w = self.asset.data.body_link_pos_w[:, self.tracking_body_indices_asset]
-        self.robot_body_lin_vel_w = self.asset.data.body_com_lin_vel_w[:, self.tracking_body_indices_asset]
-        self.robot_body_quat_w = self.asset.data.body_link_quat_w[:, self.tracking_body_indices_asset]
-        self.robot_body_ang_vel_w = self.asset.data.body_com_ang_vel_w[:, self.tracking_body_indices_asset]
+        self.robot_body_link_pos_w = self.asset.data.body_link_pos_w[:, self.tracking_body_indices_asset]
+        self.robot_body_com_lin_vel_w = self.asset.data.body_com_lin_vel_w[:, self.tracking_body_indices_asset]
+        self.robot_body_link_quat_w = self.asset.data.body_link_quat_w[:, self.tracking_body_indices_asset]
+        self.robot_body_com_ang_vel_w = self.asset.data.body_com_ang_vel_w[:, self.tracking_body_indices_asset]
         self.robot_joint_pos = self.asset.data.joint_pos[:, self.tracking_joint_indices_asset]
         self.robot_joint_vel = self.asset.data.joint_vel[:, self.tracking_joint_indices_asset]
-        self.robot_root_pos_w = self.asset.data.root_link_pos_w
-        self.robot_root_quat_w = self.asset.data.root_link_quat_w
+        self.robot_root_link_pos_w = self.asset.data.root_link_pos_w
+        self.robot_root_link_quat_w = self.asset.data.root_link_quat_w
 
         # Reward: current ref body and joint states
         self.current_ref_motion: MotionData = self.future_ref_motion[:, 0]
-        self.ref_body_pos_w = self.ref_body_pos_future_w[:, 0]
-        self.ref_body_lin_vel_w = self.ref_body_lin_vel_future_w[:, 0]
-        self.ref_body_quat_w = self.ref_body_quat_future_w[:, 0]
-        self.ref_body_ang_vel_w = self.ref_body_ang_vel_future_w[:, 0]
+        self.ref_body_link_pos_w = self.ref_body_pos_future_w[:, 0]
+        self.ref_body_com_lin_vel_w = self.ref_body_lin_vel_future_w[:, 0]
+        self.ref_body_link_quat_w = self.ref_body_quat_future_w[:, 0]
+        self.ref_body_com_ang_vel_w = self.ref_body_ang_vel_future_w[:, 0]
         self.ref_joint_pos = self.ref_joint_pos_future_[:, 0]
         self.ref_joint_vel = self.ref_joint_vel_future_[:, 0]
-        self.ref_root_pos_w = self.ref_root_pos_future_w[:, 0]
-        self.ref_root_quat_w = self.ref_root_quat_future_w[:, 0]
+        self.ref_root_link_pos_w = self.ref_root_pos_future_w[:, 0]
+        self.ref_root_link_quat_w = self.ref_root_quat_future_w[:, 0]
         # shape: [num_envs, num_future_steps, num_tracking_bodies, xxx]
 
         if self.env.backend == "isaac":
-            self.all_marker_pos_w[0] = self.robot_body_pos_w
-            self.all_marker_pos_w[1] = self.ref_body_pos_w
+            self.all_marker_pos_w[0] = self.robot_body_link_pos_w
+            self.all_marker_pos_w[1] = self.ref_body_link_pos_w
             # self.all_marker_pos_w[0] = self.ref_body_pos_future_w[:, 0]
             # self.all_marker_pos_w[1] = self.ref_body_pos_future_w[:, -1]
 
@@ -371,11 +372,11 @@ class RobotObjectTracking(RobotTracking):
 
         self.object_asset_name = object_asset_name
         if object_joint_name is None:
-            self.object = self.env.scene.rigid_objects[object_asset_name]
+            self.object = self.env.scene.entities[object_asset_name]
             self.object_joint_idx_motion = None
             self.object_joint_idx_asset = None
         else:
-            self.object = self.env.scene.articulations[object_asset_name]
+            self.object = self.env.scene.entities[object_asset_name]
             self.object_joint_idx_motion = self.dataset.joint_names.index(object_joint_name)
             self.object_joint_idx_asset = self.object.joint_names.index(object_joint_name)
         
@@ -398,21 +399,22 @@ class RobotObjectTracking(RobotTracking):
         self.num_eefs = len(contact_eef_body_name)
         self.contact_eef_body_indices_asset = [self.asset.body_names.index(name) for name in contact_eef_body_name]
 
-        self.eef_filtered_sensor: List[List[ContactSensor]] = []
-        # [self.env.scene.sensors[f"{eef_name}_{object_asset_name}_contact_forces"] for eef_name in contact_eef_body_name] for object_asset_name in self.asset.data.object_names]
-        self.eef_filtered_sensor_indices: List[List[int]] = []
-        # = [eef_sensor.body_names.index(eef_name) for (eef_name, eef_sensor) in zip(contact_eef_body_name, self.eef_object_contact_forces)]
-        for eef_name in contact_eef_body_name:
-            eef_names = self.asset.find_bodies(eef_name)[1]
-            sensors_for_this_eef = []
-            sensor_indices_for_this_eef = []
-            for eef_name in eef_names:
-                eef_sensor_name = f"{eef_name}_{object_asset_name}_contact_forces"
-                eef_sensor_filtered = self.env.scene.sensors[eef_sensor_name]
-                sensors_for_this_eef.append(eef_sensor_filtered)
-                sensor_indices_for_this_eef.append(eef_sensor_filtered.body_names.index(eef_name))
-            self.eef_filtered_sensor.append(sensors_for_this_eef)
-            self.eef_filtered_sensor_indices.append(sensor_indices_for_this_eef)
+        # self.eef_filtered_sensor: List[List[ContactSensor]] = []
+        # # [self.env.scene.sensors[f"{eef_name}_{object_asset_name}_contact_forces"] for eef_name in contact_eef_body_name] for object_asset_name in self.asset.data.object_names]
+        # self.eef_filtered_sensor_indices: List[List[int]] = []
+        # # = [eef_sensor.body_names.index(eef_name) for (eef_name, eef_sensor) in zip(contact_eef_body_name, self.eef_object_contact_forces)]
+        # for eef_name in contact_eef_body_name:
+        #     eef_names = self.asset.find_bodies(eef_name)[1]
+        #     sensors_for_this_eef = []
+        #     sensor_indices_for_this_eef = []
+        #     for eef_name in eef_names:
+        #         eef_sensor_name = f"{eef_name}_{object_asset_name}_contact_forces"
+        #         eef_sensor_filtered = self.env.scene.sensors[eef_sensor_name]
+        #         sensors_for_this_eef.append(eef_sensor_filtered)
+        #         sensor_indices_for_this_eef.append(eef_sensor_filtered.body_names.index(eef_name))
+        #     self.eef_filtered_sensor.append(sensors_for_this_eef)
+        #     self.eef_filtered_sensor_indices.append(sensor_indices_for_this_eef)
+        self.eef_contact_names = [f"{eef_name}_{object_asset_name}_contact_forces" for eef_name in contact_eef_body_name]
 
         with torch.device(self.device):
             self.contact_target_pos_offset = torch.tensor(contact_target_pos_offset, device=self.device).repeat(self.num_envs, 1, 1)
@@ -424,7 +426,8 @@ class RobotObjectTracking(RobotTracking):
             self.eef_contact_forces_w = torch.zeros(self.num_envs, len(contact_eef_body_name), 3, device=self.device)
             self.eef_contact_forces_b = torch.zeros(self.num_envs, len(contact_eef_body_name), 3, device=self.device)
         
-        scale = getattr(self.object.cfg.spawn, "scale", None)
+        # scale = getattr(self.object.cfg.spawn, "scale", None)
+        scale = None
         if not isinstance(scale, torch.Tensor):
             scale_tensor = torch.ones(self.num_envs, 3)
             if scale is None:
@@ -473,6 +476,7 @@ class RobotObjectTracking(RobotTracking):
 
         self.object.write_root_link_pose_to_sim(init_object_state_w[:, 0:7], env_ids=env_ids)
         self.object.write_root_com_velocity_to_sim(init_object_state_w[:, 7:], env_ids=env_ids)
+        # self.object.write_root_link_velocity_to_sim(init_object_state_w[:, 7:], env_ids=env_ids)
 
         for object_, object_body_id_motion in zip(self.extra_objects, self.extra_object_body_id_motion):
             init_object_pos = self._motion_reset.body_pos_w[:, object_body_id_motion]
@@ -492,7 +496,7 @@ class RobotObjectTracking(RobotTracking):
         # robot_pos_w = self.asset.data.root_link_pos_w[env_ids]
         # robot_quat_w = self.asset.data.root_link_quat_w[env_ids]
         # object_pos_b = quat_apply_inverse(robot_quat_w, (init_object_pos + self.env.scene.env_origins[env_ids]) - robot_pos_w)
-        # from isaaclab.utils.math import quat_conjugate
+        # from mjlab.third_party.isaaclab.isaaclab.utils.math import quat_conjugate
         # object_quat_b = quat_mul(quat_conjugate(robot_quat_w), init_object_quat)
         # print(f"Object initial position in robot frame: {object_pos_b}, orientation: {object_quat_b}")
 
@@ -576,10 +580,8 @@ class RobotObjectTracking(RobotTracking):
         eef_quat_w = self.asset.data.body_link_quat_w[:, self.contact_eef_body_indices_asset]
         self.contact_eef_pos_w[:] = eef_pos_w + quat_apply(eef_quat_w, self.contact_eef_pos_offset)
         
-        self.eef_contact_forces_w.zero_()
-        for eef_idx, (eef_sensors, eef_sensor_indices) in enumerate(zip(self.eef_filtered_sensor, self.eef_filtered_sensor_indices)):
-            for eef_sensor, eef_sensor_id in zip(eef_sensors, eef_sensor_indices):
-                self.eef_contact_forces_w[:, eef_idx] += eef_sensor.data.force_matrix_w[:, eef_sensor_id, 0]
+        for eef_idx, eef_contact_name in enumerate(self.eef_contact_names):
+            self.eef_contact_forces_w[:, eef_idx] = self.env.scene.sensor_data[eef_contact_name][:, 0:3]
 
         self.eef_contact_forces_b[:] = quat_apply_inverse(object_quat_w.unsqueeze(1), self.eef_contact_forces_w)
 

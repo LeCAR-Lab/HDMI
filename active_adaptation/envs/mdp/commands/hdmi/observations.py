@@ -2,7 +2,7 @@ from active_adaptation.envs.mdp.commands.hdmi.command import RobotTracking, Robo
 from active_adaptation.envs.mdp.base import Observation as BaseObservation
 
 import torch
-from isaaclab.utils.math import (
+from mjlab.third_party.isaaclab.isaaclab.utils.math import (
     quat_apply_inverse,
     quat_mul,
     quat_conjugate,
@@ -60,10 +60,10 @@ class ref_root_pos_future_b(RobotTrackObservation):
 
     def update(self):
         ref_root_pos_future_w = self.command_manager.ref_root_pos_future_w # shape: [num_envs, num_future_steps, 3]
-        robot_root_pos_w = self.command_manager.robot_root_pos_w[:, None, :] # shape: [num_envs, 1, 3]
-        robot_root_quat_w = self.command_manager.robot_root_quat_w[:, None, :] # shape: [num_envs, 1, 4]
+        robot_root_link_pos_w = self.command_manager.robot_root_link_pos_w[:, None, :] # shape: [num_envs, 1, 3]
+        robot_root_link_quat_w = self.command_manager.robot_root_link_quat_w[:, None, :] # shape: [num_envs, 1, 4]
         
-        ref_root_pos_future_b = quat_apply_inverse(robot_root_quat_w, ref_root_pos_future_w - robot_root_pos_w)
+        ref_root_pos_future_b = quat_apply_inverse(robot_root_link_quat_w, ref_root_pos_future_w - robot_root_link_pos_w)
         self.ref_root_pos_future_b = ref_root_pos_future_b
 
     def compute(self):
@@ -80,10 +80,10 @@ class ref_root_ori_future_b(RobotTrackObservation):
 
     def update(self):
         ref_root_quat_future_w = self.command_manager.ref_root_quat_future_w # shape: [num_envs, num_future_steps, 4]
-        robot_root_quat_w = self.command_manager.robot_root_quat_w[:, None, :] # shape: [num_envs, 1, 4]
+        robot_root_link_quat_w = self.command_manager.robot_root_link_quat_w[:, None, :] # shape: [num_envs, 1, 4]
         
         ref_root_quat_future_b = quat_mul(
-            quat_conjugate(robot_root_quat_w).expand_as(ref_root_quat_future_w),
+            quat_conjugate(robot_root_link_quat_w).expand_as(ref_root_quat_future_w),
             ref_root_quat_future_w
         )
         ref_root_ori_future_b = matrix_from_quat(ref_root_quat_future_b)
@@ -102,13 +102,13 @@ class ref_body_pos_future_local(RobotTrackObservation):
     
     def update(self):
         ref_body_pos_future_w = self.command_manager.ref_body_pos_future_w    # shape: [num_envs, num_future_steps, num_tracking_bodies, 3]
-        ref_root_pos_w = self.command_manager.ref_root_pos_w[:, None, None, :].clone() # shape: [num_envs, 1, 1, 3]
-        ref_root_quat_w = self.command_manager.ref_root_quat_w[:, None, None, :] # shape: [num_envs, 1, 1, 4]
+        ref_root_link_pos_w = self.command_manager.ref_root_link_pos_w[:, None, None, :].clone() # shape: [num_envs, 1, 1, 3]
+        ref_root_link_quat_w = self.command_manager.ref_root_link_quat_w[:, None, None, :] # shape: [num_envs, 1, 1, 4]
 
-        ref_root_pos_w[..., 2] = 0.0
-        ref_root_quat_w = yaw_quat(ref_root_quat_w)
+        ref_root_link_pos_w[..., 2] = 0.0
+        ref_root_link_quat_w = yaw_quat(ref_root_link_quat_w)
 
-        ref_body_pos_future_local = quat_apply_inverse(ref_root_quat_w, ref_body_pos_future_w - ref_root_pos_w)
+        ref_body_pos_future_local = quat_apply_inverse(ref_root_link_quat_w, ref_body_pos_future_w - ref_root_link_pos_w)
         self.ref_body_pos_future_local = ref_body_pos_future_local
     
     def compute(self):
@@ -124,12 +124,12 @@ class ref_body_ori_future_local(RobotTrackObservation):
     
     def update(self):
         ref_body_quat_future_w = self.command_manager.ref_body_quat_future_w # shape: [num_envs, num_future_steps, num_tracking_bodies, 4]
-        ref_root_quat_w = self.command_manager.ref_root_quat_w[:, None, None, :] # shape: [num_envs, 1, 1, 4]
+        ref_root_link_quat_w = self.command_manager.ref_root_link_quat_w[:, None, None, :] # shape: [num_envs, 1, 1, 4]
 
-        ref_root_quat_w = yaw_quat(ref_root_quat_w)
+        ref_root_link_quat_w = yaw_quat(ref_root_link_quat_w)
 
         ref_body_quat_future_local = quat_mul(
-            quat_conjugate(ref_root_quat_w).expand_as(ref_body_quat_future_w),
+            quat_conjugate(ref_root_link_quat_w).expand_as(ref_body_quat_future_w),
             ref_body_quat_future_w
         )
         self.ref_body_ori_future_local = matrix_from_quat(ref_body_quat_future_local)
@@ -147,20 +147,20 @@ class diff_body_pos_future_local(RobotTrackObservation):
 
     def update(self):
         ref_body_pos_future_w = self.command_manager.ref_body_pos_future_w # shape: [num_envs, num_future_steps, num_tracking_bodies, 3]
-        ref_root_pos_w = self.command_manager.ref_root_pos_w[:, None, None, :].clone() # shape: [num_envs, 1, 1, 3]
-        ref_root_quat_w = self.command_manager.ref_root_quat_w[:, None, None, :] # shape: [num_envs, 1, 1, 4]
+        ref_root_link_pos_w = self.command_manager.ref_root_link_pos_w[:, None, None, :].clone() # shape: [num_envs, 1, 1, 3]
+        ref_root_link_quat_w = self.command_manager.ref_root_link_quat_w[:, None, None, :] # shape: [num_envs, 1, 1, 4]
 
-        robot_body_pos_w = self.command_manager.robot_body_pos_w # shape: [num_envs, num_tracking_bodies, 3]
-        robot_root_pos_w = self.command_manager.robot_root_pos_w[:, None, :].clone() # shape: [num_envs, 1, 3]
-        robot_root_quat_w = self.command_manager.robot_root_quat_w[:, None, :] # shape: [num_envs, 1, 4]
+        robot_body_link_pos_w = self.command_manager.robot_body_link_pos_w # shape: [num_envs, num_tracking_bodies, 3]
+        robot_root_link_pos_w = self.command_manager.robot_root_link_pos_w[:, None, :].clone() # shape: [num_envs, 1, 3]
+        robot_root_link_quat_w = self.command_manager.robot_root_link_quat_w[:, None, :] # shape: [num_envs, 1, 4]
 
-        ref_root_pos_w[..., 2] = 0.0
-        robot_root_pos_w[..., 2] = 0.0
-        ref_root_quat_w = yaw_quat(ref_root_quat_w)
-        robot_root_quat_w = yaw_quat(robot_root_quat_w)
+        ref_root_link_pos_w[..., 2] = 0.0
+        robot_root_link_pos_w[..., 2] = 0.0
+        ref_root_link_quat_w = yaw_quat(ref_root_link_quat_w)
+        robot_root_link_quat_w = yaw_quat(robot_root_link_quat_w)
 
-        ref_body_pos_future_local = quat_apply_inverse(ref_root_quat_w, ref_body_pos_future_w - ref_root_pos_w)
-        robot_body_pos_local = quat_apply_inverse(robot_root_quat_w, robot_body_pos_w - robot_root_pos_w)
+        ref_body_pos_future_local = quat_apply_inverse(ref_root_link_quat_w, ref_body_pos_future_w - ref_root_link_pos_w)
+        robot_body_pos_local = quat_apply_inverse(robot_root_link_quat_w, robot_body_link_pos_w - robot_root_link_pos_w)
 
         self.diff_body_pos_future_local = ref_body_pos_future_local - robot_body_pos_local.unsqueeze(1)
 
@@ -177,15 +177,15 @@ class diff_body_lin_vel_future_local(RobotTrackObservation):
     
     def update(self):
         ref_body_lin_vel_future_w = self.command_manager.ref_body_lin_vel_future_w # shape: [num_envs, num_future_steps, num_tracking_bodies, 3]
-        ref_root_quat_w = self.command_manager.ref_root_quat_w[:, None, None, :] # shape: [num_envs, 1, 1, 4]
-        robot_body_lin_vel_w = self.command_manager.robot_body_lin_vel_w # shape: [num_envs, num_tracking_bodies, 3]
-        robot_root_quat_w = self.command_manager.robot_root_quat_w[:, None, :] # shape: [num_envs, 1, 4]
+        ref_root_link_quat_w = self.command_manager.ref_root_link_quat_w[:, None, None, :] # shape: [num_envs, 1, 1, 4]
+        robot_body_link_lin_vel_w = self.command_manager.robot_body_com_lin_vel_w # shape: [num_envs, num_tracking_bodies, 3]
+        robot_root_link_quat_w = self.command_manager.robot_root_link_quat_w[:, None, :] # shape: [num_envs, 1, 4]
 
-        ref_root_quat_w = yaw_quat(ref_root_quat_w)
-        robot_root_quat_w = yaw_quat(robot_root_quat_w)
+        ref_root_link_quat_w = yaw_quat(ref_root_link_quat_w)
+        robot_root_link_quat_w = yaw_quat(robot_root_link_quat_w)
 
-        ref_body_lin_vel_future_local = quat_apply_inverse(ref_root_quat_w, ref_body_lin_vel_future_w)
-        robot_body_lin_vel_local = quat_apply_inverse(robot_root_quat_w, robot_body_lin_vel_w)
+        ref_body_lin_vel_future_local = quat_apply_inverse(ref_root_link_quat_w, ref_body_lin_vel_future_w)
+        robot_body_lin_vel_local = quat_apply_inverse(robot_root_link_quat_w, robot_body_link_lin_vel_w)
 
         self.diff_body_lin_vel_future_local = ref_body_lin_vel_future_local - robot_body_lin_vel_local.unsqueeze(1)
 
@@ -203,20 +203,20 @@ class diff_body_ori_future_local(RobotTrackObservation):
 
     def update(self):
         ref_body_quat_future_w = self.command_manager.ref_body_quat_future_w # shape: [num_envs, num_future_steps, num_tracking_bodies, 4]
-        ref_root_quat_w = self.command_manager.ref_root_quat_w[:, None, None, :] # shape: [num_envs, 1, 1, 4]
-        robot_body_quat_w = self.command_manager.robot_body_quat_w # shape: [num_envs, num_tracking_bodies, 4]
-        robot_root_quat_w = self.command_manager.robot_root_quat_w[:, None, :] # shape: [num_envs, 1, 4]
+        ref_root_link_quat_w = self.command_manager.ref_root_link_quat_w[:, None, None, :] # shape: [num_envs, 1, 1, 4]
+        robot_body_link_quat_w = self.command_manager.robot_body_link_quat_w # shape: [num_envs, num_tracking_bodies, 4]
+        robot_root_link_quat_w = self.command_manager.robot_root_link_quat_w[:, None, :] # shape: [num_envs, 1, 4]
 
-        ref_root_quat_w = yaw_quat(ref_root_quat_w)
-        robot_root_quat_w = yaw_quat(robot_root_quat_w)
+        ref_root_link_quat_w = yaw_quat(ref_root_link_quat_w)
+        robot_root_link_quat_w = yaw_quat(robot_root_link_quat_w)
 
         ref_body_quat_future_local = quat_mul(
-            quat_conjugate(ref_root_quat_w).expand_as(ref_body_quat_future_w),
+            quat_conjugate(ref_root_link_quat_w).expand_as(ref_body_quat_future_w),
             ref_body_quat_future_w
         )
         robot_body_quat_local = quat_mul(
-            quat_conjugate(robot_root_quat_w).expand_as(robot_body_quat_w),
-            robot_body_quat_w
+            quat_conjugate(robot_root_link_quat_w).expand_as(robot_body_link_quat_w),
+            robot_body_link_quat_w
         ).unsqueeze(1)
         diff_body_quat_future = quat_mul(
             quat_conjugate(robot_body_quat_local).expand_as(ref_body_quat_future_w),
@@ -237,15 +237,15 @@ class diff_body_ang_vel_future_local(RobotTrackObservation):
     
     def update(self):
         ref_body_ang_vel_future_w = self.command_manager.ref_body_ang_vel_future_w # shape: [num_envs, num_future_steps, num_tracking_bodies, 3]
-        ref_root_quat_w = self.command_manager.ref_root_quat_w[:, None, None, :] # shape: [num_envs, 1, 1, 4]
-        robot_body_ang_vel_w = self.command_manager.robot_body_ang_vel_w # shape: [num_envs, num_tracking_bodies, 3]
-        robot_root_quat_w = self.command_manager.robot_root_quat_w[:, None, :] # shape: [num_envs, 1, 4]
+        ref_root_link_quat_w = self.command_manager.ref_root_link_quat_w[:, None, None, :] # shape: [num_envs, 1, 1, 4]
+        robot_body_link_ang_vel_w = self.command_manager.robot_body_com_ang_vel_w # shape: [num_envs, num_tracking_bodies, 3]
+        robot_root_link_quat_w = self.command_manager.robot_root_link_quat_w[:, None, :] # shape: [num_envs, 1, 4]
 
-        ref_root_quat_w = yaw_quat(ref_root_quat_w)
-        robot_root_quat_w = yaw_quat(robot_root_quat_w)
+        ref_root_link_quat_w = yaw_quat(ref_root_link_quat_w)
+        robot_root_link_quat_w = yaw_quat(robot_root_link_quat_w)
 
-        ref_body_ang_vel_future_local = quat_apply_inverse(ref_root_quat_w, ref_body_ang_vel_future_w)
-        robot_body_ang_vel_local = quat_apply_inverse(robot_root_quat_w, robot_body_ang_vel_w)
+        ref_body_ang_vel_future_local = quat_apply_inverse(ref_root_link_quat_w, ref_body_ang_vel_future_w)
+        robot_body_ang_vel_local = quat_apply_inverse(robot_root_link_quat_w, robot_body_link_ang_vel_w)
 
         self.diff_body_ang_vel_future_local = ref_body_ang_vel_future_local - robot_body_ang_vel_local.unsqueeze(1)
 
@@ -287,13 +287,13 @@ class ref_contact_pos_b(RobotObjectTrackObservation):
             self.step_noise = torch.randn_like(self.command_manager.contact_target_pos_w).clamp(-3, 3) * self.noise_std
 
         ref_contact_target_pos_w = self.command_manager.contact_target_pos_w # shape: [num_envs, n, 3]
-        robot_root_pos_w = self.command_manager.robot_root_pos_w[:, None, :] # shape: [num_envs, 1, 3]
-        robot_root_quat_w = self.command_manager.robot_root_quat_w[:, None, :] # shape: [num_envs, 1, 4]
+        robot_root_link_pos_w = self.command_manager.robot_root_link_pos_w[:, None, :] # shape: [num_envs, 1, 3]
+        robot_root_link_quat_w = self.command_manager.robot_root_link_quat_w[:, None, :] # shape: [num_envs, 1, 4]
 
         if self.yaw_only:
-            robot_root_quat_w = yaw_quat(robot_root_quat_w)
+            robot_root_link_quat_w = yaw_quat(robot_root_link_quat_w)
 
-        ref_contact_pos_b = quat_apply_inverse(robot_root_quat_w, ref_contact_target_pos_w - robot_root_pos_w)
+        ref_contact_pos_b = quat_apply_inverse(robot_root_link_quat_w, ref_contact_target_pos_w - robot_root_link_pos_w)
         if self.noise_std > 0.0:
             noise = torch.randn_like(ref_contact_pos_b).clamp(-1, 1) * self.noise_std
             ref_contact_pos_b += noise
@@ -313,10 +313,10 @@ class diff_contact_pos_b(RobotObjectTrackObservation):
     def update(self):
         ref_contact_target_pos_w = self.command_manager.contact_target_pos_w # shape: [num_envs, n, 3]
         contact_eef_pos_w = self.command_manager.contact_eef_pos_w # shape: [num_envs, n, 3]
-        robot_root_quat_w = self.command_manager.robot_root_quat_w[:, None, :] # shape: [num_envs, 1, 4]
+        robot_root_link_quat_w = self.command_manager.robot_root_link_quat_w[:, None, :] # shape: [num_envs, 1, 4]
         
         diff_contact_pos_w = ref_contact_target_pos_w - contact_eef_pos_w
-        self.diff_contact_pos_b = quat_apply_inverse(robot_root_quat_w, diff_contact_pos_w)
+        self.diff_contact_pos_b = quat_apply_inverse(robot_root_link_quat_w, diff_contact_pos_w)
 
     def compute(self):
         return self.diff_contact_pos_b.view(self.num_envs, -1)
@@ -342,11 +342,11 @@ class object_xy_b(RobotObjectTrackObservation):
         if self.noise_std > 0.0:
             self.step_noise = torch.randn_like(self.object_xy_b).clamp(-3, 3) * self.noise_std
         object_pos_w = self.command_manager.object.data.root_link_pos_w # shape: [num_envs, 3]
-        robot_root_pos_w = self.command_manager.robot_root_pos_w # shape: [num_envs, 3]
-        robot_root_quat_w = self.command_manager.robot_root_quat_w # shape: [num_envs, 4]
-        robot_root_quat_w = yaw_quat(robot_root_quat_w)
+        robot_root_link_pos_w = self.command_manager.robot_root_link_pos_w # shape: [num_envs, 3]
+        robot_root_link_quat_w = self.command_manager.robot_root_link_quat_w # shape: [num_envs, 4]
+        robot_root_link_quat_w = yaw_quat(robot_root_link_quat_w)
 
-        self.object_xy_b = quat_apply_inverse(robot_root_quat_w, object_pos_w - robot_root_pos_w)[:, :2] + self.episodic_noise + self.step_noise
+        self.object_xy_b = quat_apply_inverse(robot_root_link_quat_w, object_pos_w - robot_root_link_pos_w)[:, :2] + self.episodic_noise + self.step_noise
 
     def compute(self):
         return self.object_xy_b.view(self.num_envs, -1)
@@ -372,10 +372,10 @@ class object_heading_b(RobotObjectTrackObservation):
         if self.noise_std > 0.0:
             self.step_noise = torch.randn_like(self.object_yaw_b).clamp(-3, 3) * self.noise_std
         object_quat_w = self.command_manager.object.data.root_link_quat_w # shape: [num_envs, 4]
-        robot_root_quat_w = self.command_manager.robot_root_quat_w # shape: [num_envs, 4]
+        robot_root_link_quat_w = self.command_manager.robot_root_link_quat_w # shape: [num_envs, 4]
 
         object_yaw_w = yaw_from_quat(object_quat_w)
-        robot_root_yaw_w = yaw_from_quat(robot_root_quat_w)
+        robot_root_yaw_w = yaw_from_quat(robot_root_link_quat_w)
         
         self.object_yaw_b = wrap_to_pi(object_yaw_w - robot_root_yaw_w)[:, None] + self.episodic_noise + self.step_noise
 
@@ -394,10 +394,10 @@ class object_pos_b(RobotObjectTrackObservation):
 
     def update(self):
         object_pos_w = self.command_manager.object.data.root_link_pos_w # shape: [num_envs, 3]
-        robot_root_pos_w = self.command_manager.robot_root_pos_w # shape: [num_envs, 3]
-        robot_root_quat_w = self.command_manager.robot_root_quat_w # shape: [num_envs, 4]
+        robot_root_link_pos_w = self.command_manager.robot_root_link_pos_w # shape: [num_envs, 3]
+        robot_root_link_quat_w = self.command_manager.robot_root_link_quat_w # shape: [num_envs, 4]
 
-        self.object_pos_b = quat_apply_inverse(robot_root_quat_w, object_pos_w - robot_root_pos_w)
+        self.object_pos_b = quat_apply_inverse(robot_root_link_quat_w, object_pos_w - robot_root_link_pos_w)
 
     def compute(self):
         return self.object_pos_b.view(self.num_envs, -1)
@@ -412,10 +412,10 @@ class object_ori_b(RobotObjectTrackObservation):
 
     def update(self):
         object_quat_w = self.command_manager.object.data.root_link_quat_w # shape: [num_envs, 4]
-        robot_root_quat_w = self.command_manager.robot_root_quat_w # shape: [num_envs, 4]
+        robot_root_link_quat_w = self.command_manager.robot_root_link_quat_w # shape: [num_envs, 4]
 
         object_quat_b = quat_mul(
-            quat_conjugate(robot_root_quat_w).expand_as(object_quat_w),
+            quat_conjugate(robot_root_link_quat_w).expand_as(object_quat_w),
             object_quat_w
         )
         self.object_ori_b = matrix_from_quat(object_quat_b)
@@ -442,7 +442,8 @@ class object_joint_torque(RobotObjectTrackObservation):
     Object joint torque
     """
     def compute(self):
-        return self.command_manager.object.data.applied_torque
+        return torch.zeros(self.num_envs, 1, device=self.device)
+        return self.command_manager.object.custom_torques
 
 class object_joint_friction(RobotObjectTrackObservation):
     """ Object joint friction
@@ -469,7 +470,7 @@ class diff_object_pos_future(RobotObjectTrackObservation):
         object_pos_w = self.command_manager.object.data.root_link_pos_w.unsqueeze(1)
         diff_object_pos_future_w = ref_object_pos_future_w - object_pos_w
 
-        object_quat_w = self.command_manager.object.data.root_quat_w.unsqueeze(1) # shape: [num_envs, 1, 4]
+        object_quat_w = self.command_manager.object.data.root_link_quat_w.unsqueeze(1) # shape: [num_envs, 1, 4]
         self.diff_object_pos_future_b = quat_apply_inverse(object_quat_w, diff_object_pos_future_w)
     
     def compute(self):

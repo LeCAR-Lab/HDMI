@@ -3,6 +3,7 @@
 name: ??? # Must be overridden by the specific task (e.g., G1TrackSuitcase)
 
 viewer:
+  headless: ${...headless}
   resolution: [2560, 1440]
   lookat: [0., 0., 0.]
   eye: [4.0, 4.0, 4.0]
@@ -17,6 +18,7 @@ sim:
   step_dt: 0.02
   isaac_physics_dt: 0.005
   mujoco_physics_dt: 0.002
+  mjlab_physics_dt: 0.005
 
 robot:
   name: ???
@@ -172,20 +174,20 @@ reward:
     tracking_upper_body_pos(keypoint_pos_tracking_local_product):
       body_names: [".*_shoulder_pitch_link", ".*_elbow_link", ".*_wrist_yaw_link"]
       weight: 0.5
-      sigma: 0.5
+      sigma: 0.3
     tracking_upper_body_ori(keypoint_ori_tracking_local_product):
       body_names: [".*_shoulder_pitch_link", ".*_elbow_link", ".*_wrist_yaw_link"]
       weight: 0.5
-      sigma: 1.0
+      sigma: 0.4
 
     tracking_lower_body_pos(keypoint_pos_tracking_local_product):
       body_names: [".*_hip_pitch_link", ".*_knee_link", ".*_ankle_roll_link"]
       weight: 0.5
-      sigma: 0.5
+      sigma: 0.3
     tracking_lower_body_ori(keypoint_ori_tracking_local_product):
       body_names: [".*_hip_pitch_link", ".*_knee_link", ".*_ankle_roll_link"]
       weight: 0.5
-      sigma: 1.0
+      sigma: 0.4
 
     tracking_root_pos(keypoint_pos_tracking_product):
       body_names: ["pelvis"]
@@ -225,13 +227,13 @@ reward:
     joint_torque_limits: {weight: 0.01, enabled: true, soft_factor: 0.6}
     survival:           {weight: 1.0, enabled: true}
   feet:
-    impact_force_l2:    {weight: 1.0, enabled: true, body_names: .*ankle_roll_link}
-    feet_slip:          {weight: 0.5, tolerance: 0.0, enabled: true, body_names: .*ankle_roll_link}
-    feet_air_time:      {weight: 5.0, enabled: true, body_names: .*ankle_roll_link, thres: 0.5, soft_discount: 1.0}
+    # impact_force_l2:    {weight: 1.0, enabled: true, body_names: .*ankle_roll_link}
+    # feet_slip:          {weight: 0.5, tolerance: 0.0, enabled: true, body_names: .*ankle_roll_link}
+    # feet_air_time:      {weight: 5.0, enabled: true, body_names: .*ankle_roll_link, thres: 0.5, soft_discount: 1.0}
     survival:           {weight: 1.0, enabled: true}
   debug:
-    feet_air_time:      {weight: 5.0, enabled: false, body_names: .*ankle_roll_link, thres: 0.2, soft_discount: 1.0}
-    feet_contact_count: {weight: 1.0, enabled: false, body_names: .*ankle_roll_link}
+    # feet_air_time:      {weight: 5.0, enabled: false, body_names: .*ankle_roll_link, thres: 0.2, soft_discount: 1.0}
+    # feet_contact_count: {weight: 1.0, enabled: false, body_names: .*ankle_roll_link}
     joint_pos_limits:   {weight: 1.0, enabled: false, soft_factor: 0.9, joint_names: .*}
     eef_contact_all:    {weight: 1.0, enabled: false, frc_thres: 1.0, pos_thres: 0.1}
     root_pos_error(keypoint_pos_error):             {body_names: ["pelvis"], weight: 1.0, enabled: false}

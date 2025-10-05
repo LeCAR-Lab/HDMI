@@ -48,20 +48,20 @@ observation:
 
 randomization:
   object_joint_randomization:
-    armature_range: [0.0, 0.01]
+    # armature_range: [0.0, 0.01]
 
     friction_range: [0.1, 0.5]
     damping_range: [0.1, 1.0]
 
-  object_body_randomization:
-    static_dynamic_friction_ratio_range: [1.0, 2.0]
-    dynamic_friction_range: [0.3, 0.8]
-    restitution_range: [0.0, 0.2]
-    mass_range: [5.0, 20.0]
+#   object_body_randomization:
+#     static_dynamic_friction_ratio_range: [1.0, 2.0]
+#     dynamic_friction_range: [0.3, 0.8]
+#     restitution_range: [0.0, 0.2]
+#     mass_range: [5.0, 20.0]
   
-  body_scale:
-    name: "door"
-    scale_range: [0.9, 1.1]
+#   body_scale:
+#     name: "door"
+#     scale_range: [0.9, 1.1]
 
 reward:
   object_tracking:

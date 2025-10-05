@@ -1,11 +1,12 @@
 from active_adaptation.envs.mdp.base import Reward
 
 import torch
-from isaaclab.utils.math import quat_apply_inverse
+from mjlab.third_party.isaaclab.isaaclab.utils.math import quat_apply_inverse
 
 from typing import TYPE_CHECKING, List
 if TYPE_CHECKING:
-    from isaaclab.assets.articulation import Articulation
+    # from isaaclab.assets.articulation import Articulation
+    from mjlab.entity import Entity as Articulation
     from isaaclab.sensors import ContactSensor
     
 class feet_slip(Reward):
@@ -26,7 +27,7 @@ class feet_slip(Reward):
         in_contact = (
             self.contact_sensor.data.current_contact_time[:, self.body_ids] > 0.02
         )
-        feet_vel = self.asset.data.body_lin_vel_w[:, self.articulation_body_ids, :2]
+        feet_vel = self.asset.data.body_com_lin_vel_w[:, self.articulation_body_ids, :2]
         feet_vel = (feet_vel.norm(dim=-1) - self.tolerance).clamp(min=0.0, max=1.0)
         slip = (in_contact * feet_vel).sum(dim=1, keepdim=True)
         return -slip
@@ -47,7 +48,7 @@ class feet_upright(Reward):
         self.xy_sigma = xy_sigma
         
     def compute(self):
-        feet_quat_w = self.asset.data.body_quat_w[:, self.body_ids_asset]
+        feet_quat_w = self.asset.data.body_link_quat_w[:, self.body_ids_asset]
         feet_projected_down = quat_apply_inverse(feet_quat_w, self.down)
         feet_projected_down_xy = feet_projected_down[:, :, :2].norm(dim=-1)
         # shape: (num_envs, num_feet)
@@ -63,7 +64,7 @@ class feet_close_xy(Reward):
         assert len(self.body_ids) == 2, "Only support two feet"
 
     def compute(self):
-        feet_pos = self.asset.data.body_pos_w[:, self.body_ids]
+        feet_pos = self.asset.data.body_link_pos_w[:, self.body_ids]
         distance_xy = (feet_pos[:, 0, :2] - feet_pos[:, 1, :2]).norm(dim=-1)
         penalty = (distance_xy - self.threshold).clamp_max(0.0)
         return penalty.unsqueeze(1)
@@ -157,7 +158,7 @@ class feet_air_time(Reward):
         if self.env.backend != "isaac":
             return
         self.vis_marker_pos_w.fill_(-100)
-        feet_pos_w = self.asset.data.body_pos_w[:, self.articulation_body_ids]
+        feet_pos_w = self.asset.data.body_link_pos_w[:, self.articulation_body_ids]
         first_contact = self.contact_sensor.compute_first_contact(self.env.step_dt)[
             :, self.body_ids
         ]
@@ -215,7 +216,7 @@ class max_feet_height(Reward):
         contact_force = self.contact_sensor.data.net_forces_w_history[
             :, :, self.body_ids
         ]
-        feet_pos_w = self.asset.data.body_pos_w[:, self.asset_body_ids]
+        feet_pos_w = self.asset.data.body_link_pos_w[:, self.asset_body_ids]
         in_contact = (contact_force.norm(dim=-1) > 0.01).any(dim=1)
         self.impact[:] = (~self.in_contact) & in_contact
         self.detach[:] = self.in_contact & (~in_contact)
@@ -247,7 +248,7 @@ class max_feet_height(Reward):
         return r
 
     def debug_draw(self):
-        feet_pos_w = self.asset.data.body_pos_w[:, self.asset_body_ids]
+        feet_pos_w = self.asset.data.body_link_pos_w[:, self.asset_body_ids]
         self.env.debug_draw.point(
             feet_pos_w[self.impact],
             color=(1.0, 0.0, 0.0, 1.0),

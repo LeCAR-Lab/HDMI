@@ -8,7 +8,7 @@ import torch
 import inspect
 
 from active_adaptation.utils.motion import MotionDataset
-from isaaclab.utils.math import (
+from mjlab.third_party.isaaclab.isaaclab.utils.math import (
     quat_mul,
     quat_conjugate,
     matrix_from_quat,
@@ -16,7 +16,7 @@ from isaaclab.utils.math import (
     quat_apply_inverse
 )
 from active_adaptation.utils.math import batchify
-from isaaclab.utils.string import resolve_matching_names
+from mjlab.third_party.isaaclab.isaaclab.utils.string import resolve_matching_names
 from typing import Dict, Type
 
 yaw_quat = batchify(yaw_quat)
@@ -153,10 +153,10 @@ class AMPObsBuffer:
     def __init__(self, motion_lib: MotionDataset, obs_cfg: Dict):
         self.device = motion_lib.device
 
-        self.body_pos_w = motion_lib.data.body_pos_w
-        self.body_quat_w = motion_lib.data.body_quat_w
-        self.body_lin_vel_w = motion_lib.data.body_lin_vel_w
-        self.body_ang_vel_w = motion_lib.data.body_ang_vel_w
+        self.body_link_pos_w = motion_lib.data.body_pos_w
+        self.body_link_quat_w = motion_lib.data.body_quat_w
+        self.body_link_lin_vel_w = motion_lib.data.body_lin_vel_w
+        self.body_link_ang_vel_w = motion_lib.data.body_ang_vel_w
         self.joint_pos = motion_lib.data.joint_pos
         self.joint_vel = motion_lib.data.joint_vel
 
@@ -292,21 +292,21 @@ class body_pos_b_history(AMPObservation):
         self.root_body_idx = buffer.body_names.index("pelvis")
         
     def compute(self):
-        root_pos_w = self.buffer.body_pos_w[:, self.root_body_idx]  # (num_frames, 3)
-        root_quat_w = self.buffer.body_quat_w[:, self.root_body_idx]  # (num_frames, 4)
+        root_link_pos_w = self.buffer.body_link_pos_w[:, self.root_body_idx]  # (num_frames, 3)
+        root_link_quat_w = self.buffer.body_link_quat_w[:, self.root_body_idx]  # (num_frames, 4)
 
         # Zero out Z component and use yaw-only quaternion
-        root_pos_w_flat = root_pos_w.clone()
-        root_pos_w_flat[..., 2] = 0.0
-        root_quat_w_yaw = yaw_quat(root_quat_w)
+        root_link_pos_w_flat = root_link_pos_w.clone()
+        root_link_pos_w_flat[..., 2] = 0.0
+        root_link_quat_w_yaw = yaw_quat(root_link_quat_w)
         
         # Get body positions
-        body_pos_w = self.buffer.body_pos_w[:, self.body_indices]  # (num_frames, num_bodies, 3)
+        body_link_pos_w = self.buffer.body_link_pos_w[:, self.body_indices]  # (num_frames, num_bodies, 3)
         
         # Transform to body frame
         body_pos_b = quat_apply_inverse(
-            root_quat_w_yaw.unsqueeze(1),
-            body_pos_w - root_pos_w_flat.unsqueeze(1)
+            root_link_quat_w_yaw.unsqueeze(1),
+            body_link_pos_w - root_link_pos_w_flat.unsqueeze(1)
         )
         
         return _get_history_obs(body_pos_b, self.history_steps)  # (num_frames, num_history_steps * num_bodies * 3)
@@ -324,16 +324,16 @@ class body_lin_vel_b_history(AMPObservation):
         from active_adaptation.utils.math import yaw_quat
         
         # Get root orientation (assuming first body is root)
-        root_quat_w = self.buffer.body_quat_w[:, self.root_body_idx]  # (num_frames, 4)
-        root_quat_w_yaw = yaw_quat(root_quat_w)
+        root_link_quat_w = self.buffer.body_link_quat_w[:, self.root_body_idx]  # (num_frames, 4)
+        root_link_quat_w_yaw = yaw_quat(root_link_quat_w)
         
         # Get body linear velocities
-        body_lin_vel_w = self.buffer.body_lin_vel_w[:, self.body_indices]  # (num_frames, num_bodies, 3)
+        body_link_lin_vel_w = self.buffer.body_link_lin_vel_w[:, self.body_indices]  # (num_frames, num_bodies, 3)
         
         # Transform to body frame
         body_lin_vel_b = quat_apply_inverse(
-            root_quat_w_yaw.unsqueeze(1),
-            body_lin_vel_w
+            root_link_quat_w_yaw.unsqueeze(1),
+            body_link_lin_vel_w
         )
         return _get_history_obs(body_lin_vel_b, self.history_steps)
 
@@ -347,16 +347,16 @@ class body_ori_b_history(AMPObservation):
         self.root_body_idx = buffer.body_names.index("pelvis")
 
     def compute(self):
-        root_quat_w = self.buffer.body_quat_w[:, self.root_body_idx]  # (num_frames, 4)
-        root_quat_w_yaw = yaw_quat(root_quat_w)
+        root_link_quat_w = self.buffer.body_link_quat_w[:, self.root_body_idx]  # (num_frames, 4)
+        root_link_quat_w_yaw = yaw_quat(root_link_quat_w)
         
         # Get body orientations
-        body_quat_w = self.buffer.body_quat_w[:, self.body_indices]  # (num_frames, num_bodies, 4)
+        body_link_quat_w = self.buffer.body_link_quat_w[:, self.body_indices]  # (num_frames, num_bodies, 4)
         
         # Transform to body frame
         body_quat_b = quat_mul(
-            quat_conjugate(root_quat_w_yaw).unsqueeze(1).expand_as(body_quat_w),
-            body_quat_w,
+            quat_conjugate(root_link_quat_w_yaw).unsqueeze(1).expand_as(body_link_quat_w),
+            body_link_quat_w,
         )
         
         # Convert to rotation matrix and extract first two columns
@@ -374,16 +374,16 @@ class body_ang_vel_b_history(AMPObservation):
         self.root_body_idx = buffer.body_names.index("pelvis")
 
     def compute(self):
-        root_quat_w = self.buffer.body_quat_w[:, self.root_body_idx]  # (num_frames, 4)
-        root_quat_w_yaw = yaw_quat(root_quat_w)
+        root_link_quat_w = self.buffer.body_link_quat_w[:, self.root_body_idx]  # (num_frames, 4)
+        root_link_quat_w_yaw = yaw_quat(root_link_quat_w)
         
         # Get body angular velocities
-        body_ang_vel_w = self.buffer.body_ang_vel_w[:, self.body_indices]  # (num_frames, num_bodies, 3)
+        body_link_ang_vel_w = self.buffer.body_link_ang_vel_w[:, self.body_indices]  # (num_frames, num_bodies, 3)
         
         # Transform to body frame
         body_ang_vel_b = quat_apply_inverse(
-            root_quat_w_yaw.unsqueeze(1),
-            body_ang_vel_w
+            root_link_quat_w_yaw.unsqueeze(1),
+            body_link_ang_vel_w
         )
         
         return _get_history_obs(body_ang_vel_b, self.history_steps)  # (num_frames, num_history_steps * num_bodies * 3)

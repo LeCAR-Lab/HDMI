@@ -1,0 +1,30 @@
+<mujoco model="stair">
+  <worldbody>
+    <body name="stair" pos="1.3 -0.0 0" quat="0 0 0 1">
+        <freejoint name="stair_root" />
+        <geom name="step1" type="box" 
+            size="0.49 0.3 0.105"
+            pos="0.49 0 0.105"
+            material="wood" condim="3" contype="1" conaffinity="1"/>
+
+        <geom name="step2" type="box"
+            size="0.37 0.3 0.10"
+            pos="0.37 0 0.31"
+            material="wood" condim="3" contype="1" conaffinity="1"/>
+
+        <geom name="step3" type="box"
+            size="0.25 0.3 0.10"
+            pos="0.25 0 0.51"
+            material="wood" condim="3" contype="1" conaffinity="1"/>
+    </body>
+  </worldbody>
+
+  <asset>
+    <material name="wood" rgba="0.8 0.6 0.4 1"/>
+  </asset>
+
+  <sensor>
+    <framepos name="stair_pos" objtype="xbody" objname="stair"/>
+    <framequat name="stair_quat" objtype="xbody" objname="stair"/>
+  </sensor>
+</mujoco>

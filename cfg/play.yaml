@@ -36,4 +36,4 @@ defaults:
   - _self_
 
 task:
-  num_envs: 64
+  num_envs: 1

@@ -41,8 +41,8 @@ class MJArticulationData:
     joint_stiffness: ArrayType = None
     joint_damping: ArrayType = None
 
-    body_pos_w: ArrayType = None
-    body_quat_w: ArrayType = None
+    body_link_pos_w: ArrayType = None
+    body_link_quat_w: ArrayType = None
     
     joint_pos: ArrayType = None
     joint_pos_target: ArrayType = None
@@ -53,42 +53,42 @@ class MJArticulationData:
     applied_torque: ArrayType = None
     projected_gravity_b: ArrayType = None
     
-    body_vel_w: ArrayType = None
-    # body_lin_vel_w: ArrayType = None
-    # body_ang_vel_w: ArrayType = None
-    root_lin_vel_w: ArrayType = None
-    root_ang_vel_w: ArrayType = None
+    body_com_vel_w: ArrayType = None
+    # body_link_lin_vel_w: ArrayType = None
+    # body_link_ang_vel_w: ArrayType = None
+    root_com_lin_vel_w: ArrayType = None
+    root_com_ang_vel_w: ArrayType = None
     root_ang_vel_b: ArrayType = None
     root_lin_vel_b: ArrayType = None
     heading_w: ArrayType = None
 
     @property
-    def body_lin_vel_w(self):
-        return self.body_vel_w[..., 3:]
+    def body_link_lin_vel_w(self):
+        return self.body_com_vel_w[..., 3:]
     
     @property
-    def body_ang_vel_w(self):
-        return self.body_vel_w[..., :3]
+    def body_link_ang_vel_w(self):
+        return self.body_com_vel_w[..., :3]
 
     @property
-    def root_pos_w(self):
-        return self.body_pos_w[..., 0, :]
+    def root_link_pos_w(self):
+        return self.body_link_pos_w[..., 0, :]
     
     @property
-    def root_quat_w(self):
-        return self.body_quat_w[..., 0, :]
+    def root_link_quat_w(self):
+        return self.body_link_quat_w[..., 0, :]
     
     # @property
-    # def root_lin_vel_w(self):
-    #     return self.body_vel_w[..., 0, :3]
+    # def root_com_lin_vel_w(self):
+    #     return self.body_com_vel_w[..., 0, :3]
     
     # @property
-    # def root_ang_vel_w(self):
-    #     return self.body_vel_w[..., 0, 3:]
+    # def root_com_ang_vel_w(self):
+    #     return self.body_com_vel_w[..., 0, 3:]
     
     @property
     def root_state_w(self):
-        return torch.cat([self.body_pos_w[:, 0, :], self.body_quat_w[:, 0, :]], dim=-1)
+        return torch.cat([self.body_link_pos_w[:, 0, :], self.body_link_quat_w[:, 0, :]], dim=-1)
 
 
 class MJPhysicsView:
@@ -265,14 +265,14 @@ class MJArticulation:
     def update(self, dt: float):
         jpos = self.mj_data.qpos[self.joint_qposadr_read]
         jvel = self.mj_data.qvel[self.joint_qveladr_read]
-        body_pos_w = self.mj_data.xpos[self.body_adrs_read]
-        # body_ang_vel_w = self.mj_data.cvel[self.body_adrs_read, :3]
-        # body_lin_vel_w = self.mj_data.cvel[self.body_adrs_read, 3:]
-        body_vel_w = self.mj_data.cvel[self.body_adrs_read]
-        body_quat_w = self.mj_data.xquat[self.body_adrs_read] # wxyz
+        body_link_pos_w = self.mj_data.xpos[self.body_adrs_read]
+        # body_link_ang_vel_w = self.mj_data.cvel[self.body_adrs_read, :3]
+        # body_link_lin_vel_w = self.mj_data.cvel[self.body_adrs_read, 3:]
+        body_com_vel_w = self.mj_data.cvel[self.body_adrs_read]
+        body_link_quat_w = self.mj_data.xquat[self.body_adrs_read] # wxyz
         
         # rot = sRot.from_quat(self.mj_data.qpos[3:7], scalar_first=True)
-        rot = sRot.from_quat(body_quat_w[0], scalar_first=True)
+        rot = sRot.from_quat(body_link_quat_w[0], scalar_first=True)
         projected_gravity_b = rot \
             .inv() \
             .apply(np.array([0., 0., -1.]))
@@ -280,11 +280,11 @@ class MJArticulation:
 
         self._data = replace(
             self._data,
-            body_pos_w=torch.as_tensor(body_pos_w, dtype=torch.float32)[None],
-            body_quat_w=torch.as_tensor(body_quat_w, dtype=torch.float32)[None],
-            # body_lin_vel_w=torch.as_tensor(body_lin_vel_w, dtype=torch.float32)[None],
-            # body_ang_vel_w=torch.as_tensor(body_ang_vel_w, dtype=torch.float32)[None],
-            body_vel_w=torch.as_tensor(body_vel_w, dtype=torch.float32)[None],
+            body_link_pos_w=torch.as_tensor(body_link_pos_w, dtype=torch.float32)[None],
+            body_link_quat_w=torch.as_tensor(body_link_quat_w, dtype=torch.float32)[None],
+            # body_link_lin_vel_w=torch.as_tensor(body_link_lin_vel_w, dtype=torch.float32)[None],
+            # body_link_ang_vel_w=torch.as_tensor(body_link_ang_vel_w, dtype=torch.float32)[None],
+            body_com_vel_w=torch.as_tensor(body_com_vel_w, dtype=torch.float32)[None],
             joint_pos=torch.as_tensor(jpos, dtype=torch.float32)[None],
             joint_pos_target=self._data.joint_pos_target.clone(),
             joint_vel=torch.as_tensor(jvel, dtype=torch.float32)[None],
@@ -292,12 +292,12 @@ class MJArticulation:
             projected_gravity_b=torch.as_tensor(projected_gravity_b, dtype=torch.float32)[None],
             heading_w=torch.as_tensor(heading_w, dtype=torch.float32)[None],
         )
-        # self._data.root_lin_vel_w = torch.as_tensor(self.mj_data.qvel[:3], dtype=torch.float32)[None]
-        # self._data.root_ang_vel_w = torch.as_tensor(self.mj_data.qvel[3:6], dtype=torch.float32)[None]
-        self._data.root_lin_vel_w = self._data.body_lin_vel_w[:, 0]
-        self._data.root_ang_vel_w = self._data.body_ang_vel_w[:, 0]
-        self._data.root_ang_vel_b = quat_rotate_inverse(self._data.root_quat_w, self._data.root_ang_vel_w)
-        self._data.root_lin_vel_b = quat_rotate_inverse(self._data.root_quat_w, self._data.root_lin_vel_w)
+        # self._data.root_com_lin_vel_w = torch.as_tensor(self.mj_data.qvel[:3], dtype=torch.float32)[None]
+        # self._data.root_com_ang_vel_w = torch.as_tensor(self.mj_data.qvel[3:6], dtype=torch.float32)[None]
+        self._data.root_com_lin_vel_w = self._data.body_link_lin_vel_w[:, 0]
+        self._data.root_com_ang_vel_w = self._data.body_link_ang_vel_w[:, 0]
+        self._data.root_ang_vel_b = quat_rotate_inverse(self._data.root_link_quat_w, self._data.root_com_ang_vel_w)
+        self._data.root_lin_vel_b = quat_rotate_inverse(self._data.root_link_quat_w, self._data.root_com_lin_vel_w)
         
         if hasattr(self, "_log_path"):
             self._log_states.append(self._data)
@@ -331,8 +331,8 @@ class MJArticulation:
         self.mj_data.ctrl[self._jnt_mjc2isaac] = torque[0]
 
         if self.has_external_wrench:
-            self.mj_data.xfrc_applied[self.body_adrs_write, :3] = quat_rotate(self._data.root_quat_w, self._external_force_b)[0]
-            self.mj_data.xfrc_applied[self.body_adrs_write, 3:] = quat_rotate(self._data.root_quat_w, self._external_torque_b)[0]
+            self.mj_data.xfrc_applied[self.body_adrs_write, :3] = quat_rotate(self._data.root_link_quat_w, self._external_force_b)[0]
+            self.mj_data.xfrc_applied[self.body_adrs_write, 3:] = quat_rotate(self._data.root_link_quat_w, self._external_torque_b)[0]
 
     def write_joint_state_to_sim(self, joint_pos: ArrayType, joint_vel: ArrayType, joint_ids: ArrayType=None, env_ids: ArrayType=None):
         if joint_ids is None:

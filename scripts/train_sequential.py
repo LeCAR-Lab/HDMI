@@ -19,8 +19,6 @@ from setproctitle import setproctitle
 from hydra import compose
 
 import active_adaptation as aa
-from isaaclab.app import AppLauncher
-# from active_adaptation.utils.torchrl import SyncDataCollector
 from torchrl.envs.utils import set_exploration_type, ExplorationType
 from tensordict.nn import TensorDictModuleBase
 from tensordict import TensorDict
@@ -42,12 +40,6 @@ def run_training_stage(cfg: DictConfig, return_queue: multiprocessing.Queue = No
     OmegaConf.set_struct(cfg, False)
     
     print(f"is_distributed: {aa.is_distributed()}, local_rank: {aa.get_local_rank()}/{aa.get_world_size()}")
-    app_launcher = AppLauncher(
-        OmegaConf.to_container(cfg.app),
-        distributed=aa.is_distributed(),
-        device=f"cuda:{aa.get_local_rank()}"
-    )
-    simulation_app = app_launcher.app
 
     run = wandb.init(
         job_type=cfg.wandb.job_type,

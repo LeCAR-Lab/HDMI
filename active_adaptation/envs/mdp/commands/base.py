@@ -1,9 +1,7 @@
 import torch
-import carb
-import omni
 import weakref
 
-from isaaclab.utils.math import quat_mul
+from mjlab.third_party.isaaclab.isaaclab.utils.math import quat_mul
 from typing import Sequence, TYPE_CHECKING
 from collections import defaultdict
 
@@ -34,7 +32,6 @@ class Command:
         self.init_root_state[:, 3:7] = self.asset.data.root_state_w[:, 3:7]
         self.init_joint_pos = self.asset.data.default_joint_pos.clone()
         self.init_joint_vel = self.asset.data.default_joint_vel.clone()
-        self.teleop = teleop
 
         if hasattr(self.env.scene, "terrain"):
             self.terrain_type = self.env.scene.terrain.cfg.terrain_type
@@ -43,18 +40,6 @@ class Command:
         
         if self.terrain_type == "generator":
             self._origins = self.env.scene.terrain.terrain_origins.reshape(-1, 3).clone()
-
-        if self.teleop:
-            # acquire omniverse interfaces
-            self._appwindow = omni.appwindow.get_default_app_window()
-            self._input = carb.input.acquire_input_interface()
-            self._keyboard = self._appwindow.get_keyboard()
-            # note: Use weakref on callbacks to ensure that this object can be deleted when its destructor is called.
-            self._keyboard_sub = self._input.subscribe_to_keyboard_events(
-                self._keyboard,
-                lambda event, *args, obj=weakref.proxy(self): obj._on_keyboard_event(event, *args),
-            )
-            self.key_pressed = defaultdict(lambda: False)
 
     @property
     def num_envs(self):
@@ -94,8 +79,3 @@ class Command:
         )
         return init_root_state
 
-    def _on_keyboard_event(self, event, *args, **kwargs):
-        if event.type == carb.input.KeyboardEventType.KEY_PRESS:
-            self.key_pressed[event.input.name] = True
-        if event.type == carb.input.KeyboardEventType.KEY_RELEASE:
-            self.key_pressed[event.input.name] = False

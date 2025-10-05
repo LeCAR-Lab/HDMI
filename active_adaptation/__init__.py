@@ -1,7 +1,7 @@
 import os
 import active_adaptation.learning
 
-_BACKEND = "isaac"
+_BACKEND = "mjlab"
 
 _LOCAL_RANK = os.getenv("LOCAL_RANK", "0")
 _LOCAL_RANK = int(_LOCAL_RANK)

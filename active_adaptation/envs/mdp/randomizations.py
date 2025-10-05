@@ -1,16 +1,18 @@
+import math
 import torch
 import numpy as np
 import logging
 from typing import Union, TYPE_CHECKING, Dict, Tuple
 
 import active_adaptation
-from active_adaptation.utils.math import quat_rotate, quat_rotate_inverse
 
-import isaaclab.utils.string as string_utils
+import mjlab.third_party.isaaclab.isaaclab.utils.string as string_utils
+from mjlab.third_party.isaaclab.isaaclab.utils.math import quat_apply_inverse
 
 
 if TYPE_CHECKING:
-    from isaaclab.assets import Articulation
+    # from isaaclab.assets import Articulation
+    from mjlab.entity import Entity as Articulation
 
 
 if active_adaptation.get_backend() == "isaac":
@@ -234,7 +236,7 @@ class random_motor_failure(Randomization):
         self.motor_failure[env_ids, i] = 1.0
 
     def debug_draw(self):
-        x = self.asset.data.body_pos_w[:, self._body_ids]
+        x = self.asset.data.body_link_pos_w[:, self._body_ids]
         x = x[self.motor_failure > 0.]
         self.env.debug_draw.point(x, color=(0.1, 1.0, 0.1, 0.8), size=20)
 
@@ -247,97 +249,112 @@ class perturb_body_materials(Randomization):
         static_friction_range = (0.6, 1.0),
         dynamic_friction_range = (0.6, 1.0),
         restitution_range=(0.0, 0.2),
-        homogeneous: bool=False
+        homogeneous: bool = False,
     ):
         super().__init__(env)
         self.asset: Articulation = self.env.scene["robot"]
         self.body_ids, self.body_names = self.asset.find_bodies(body_names)
+        if len(self.body_ids) == 0:
+            raise ValueError("No bodies matched the provided names for material perturbation.")
 
-        self.static_friction_range = static_friction_range
-        self.dynamic_friction_range = dynamic_friction_range
-        self.restitution_range = restitution_range
         self.homogeneous = homogeneous
-        
-        self.default_materials = (
-            self.asset.root_physx_view.get_material_properties()
-        )
-        
-        num_shapes_per_body = []
-        for link_path in self.asset.root_physx_view.link_paths[0]:
-            link_physx_view = self.asset._physics_sim_view.create_rigid_body_view(link_path)  # type: ignore
-            num_shapes_per_body.append(link_physx_view.max_shapes)
-        cumsum = np.cumsum([0,] + num_shapes_per_body)
-        self.shape_ids = torch.cat([
-            torch.arange(cumsum[i], cumsum[i+1]) 
-            for i in self.body_ids
-        ])
-        self.num_buckets = 64
-        self.static_friction_buckets = sample_uniform((self.num_buckets,), *self.static_friction_range)
-        self.dynamic_friction_buckets = sample_uniform((self.num_buckets,), *self.dynamic_friction_range)
-        self.restitution_buckets = sample_uniform((self.num_buckets,), *self.restitution_range)
+        self.static_friction_range = tuple(static_friction_range)
+        self.dynamic_friction_range = tuple(dynamic_friction_range)
+        self.restitution_range = tuple(restitution_range)
 
-    def startup(self):
-        logging.info(f"Randomize body materials of {self.body_names} upon startup.")
+        # Determine geoms that belong to the selected bodies.
+        local_body_ids = torch.as_tensor(self.body_ids, device=self.device, dtype=torch.long)
+        self.global_body_ids = self.asset.indexing.body_ids[local_body_ids]
+        selected_body_set = set(self.global_body_ids.cpu().tolist())
 
-        materials = self.default_materials.clone()
-        if self.homogeneous:
-            shape = (self.num_envs, 1)
+        geom_global_ids = self.asset.indexing.geom_ids.cpu().tolist()
+        geom_names = self.asset.geom_names
+        selected_geom_local: list[int] = []
+        selected_geom_global: list[int] = []
+        selected_geom_names: list[str] = []
+
+        cpu_model = self.env.sim.mj_model
+        for local_idx, global_idx in enumerate(geom_global_ids):
+            body_id = int(cpu_model.geom_bodyid[global_idx])
+            if body_id in selected_body_set:
+                selected_geom_local.append(local_idx)
+                selected_geom_global.append(global_idx)
+                selected_geom_names.append(geom_names[local_idx])
+
+        if not selected_geom_global:
+            raise ValueError(
+                "No geoms found for the specified bodies when configuring material perturbation."
+            )
+
+        self.geom_local_ids = torch.as_tensor(selected_geom_local, device=self.device, dtype=torch.long)
+        self.geom_global_ids = torch.as_tensor(selected_geom_global, device=self.device, dtype=torch.long)
+        self.geom_names = selected_geom_names
+        self._geom_global_ids_cpu = torch.as_tensor(selected_geom_global, device="cpu", dtype=torch.long)
+
+        model = self.env.sim.model
+        self._default_friction = model.geom_friction[:, self.geom_global_ids].clone()
+        if hasattr(model, "geom_solref"):
+            self._default_solref = model.geom_solref[:, self.geom_global_ids].clone()
         else:
-            shape = (self.num_envs, len(self.shape_ids))
-        materials[:, self.shape_ids, 0] = self.static_friction_buckets[torch.randint(0, self.num_buckets, shape)]
-        materials[:, self.shape_ids, 1] = self.dynamic_friction_buckets[torch.randint(0, self.num_buckets, shape)]
-        materials[:, self.shape_ids, 2] = self.restitution_buckets[torch.randint(0, self.num_buckets, shape)]
+            self._default_solref = None
 
-        indices = torch.arange(self.asset.num_instances)
-        self.asset.root_physx_view.set_material_properties(materials.flatten(), indices)
-        self.asset.data.body_materials = materials.to(self.device)
+    def _sample_range(self, range_tuple: Tuple[float, float], shape: tuple[int, int]) -> torch.Tensor:
+        low, high = range_tuple
+        if math.isclose(low, high):
+            return torch.full(shape, low, device=self.device, dtype=torch.float32)
+        return torch.rand(shape, device=self.device) * (high - low) + low
 
-
-class rand_body_materials(Randomization):
-    def __init__(
-        self,
-        env,
-        static_friction_range: NestedRangeType,
-        dynamic_friction_range: NestedRangeType,
-        restitution_range: NestedRangeType,
-    ):
-        super().__init__(env)
-        self.asset: Articulation = self.env.scene["robot"]
-        
-        num_shapes_per_body = []
-        for link_path in self.asset.root_physx_view.link_paths[0]:
-            link_physx_view = self.asset._physics_sim_view.create_rigid_body_view(link_path)  # type: ignore
-            num_shapes_per_body.append(link_physx_view.max_shapes)
-        shape_start_id = np.cumsum([0,] + num_shapes_per_body)
-        
-        def parse(body_ids, values):
-            shape_ids = []
-            ranges = []
-            for body_id, value in zip(body_ids, values):
-                body_shape_ids = torch.arange(shape_start_id[body_id], shape_start_id[body_id+1])
-                shape_ids.append(body_shape_ids)
-                ranges.extend([value] * len(body_shape_ids))
-            return torch.cat(shape_ids), torch.as_tensor(ranges).T
-
-        body_ids, body_names, values = string_utils.resolve_matching_names_values(dict(static_friction_range), self.asset.body_names)
-        self.static_friction_shape_ids, self.static_friction_range = parse(body_ids, values)
-        
-        body_ids, body_names, values = string_utils.resolve_matching_names_values(dict(dynamic_friction_range), self.asset.body_names)
-        self.dynamic_friction_shape_ids, self.dynamic_friction_range = parse(body_ids, values)
-
-        body_ids, body_names, values = string_utils.resolve_matching_names_values(dict(restitution_range), self.asset.body_names)
-        self.restitution_shape_ids, self.restitution_range = parse(body_ids, values)
-
-        self.default_materials = self.asset.root_physx_view.get_material_properties()
-    
     def startup(self):
-        materials = self.default_materials.clone()
-        materials[:, self.static_friction_shape_ids, 0] = sample_uniform(len(self.static_friction_shape_ids), *self.static_friction_range)
-        materials[:, self.dynamic_friction_shape_ids, 1] = sample_uniform(len(self.dynamic_friction_shape_ids), *self.dynamic_friction_range)
-        materials[:, self.restitution_shape_ids, 2] = sample_uniform(len(self.restitution_shape_ids), *self.restitution_range)
-        indices = torch.arange(self.asset.num_instances)
-        self.asset.root_physx_view.set_material_properties(materials.flatten(), indices)
+        logging.info(f"Randomize body materials of {self.geom_names} upon startup.")
 
+        num_geoms = self.geom_global_ids.numel()
+        sample_cols = 1 if self.homogeneous else num_geoms
+        sample_shape = (self.num_envs, sample_cols)
+
+        static_frictions = self._sample_range(self.static_friction_range, sample_shape)
+        dynamic_frictions = self._sample_range(self.dynamic_friction_range, sample_shape)
+        if sample_cols == 1:
+            static_frictions = static_frictions.expand(-1, num_geoms)
+            dynamic_frictions = dynamic_frictions.expand(-1, num_geoms)
+
+        model = self.env.sim.model
+        geom_friction = model.geom_friction
+        geom_friction[:, self.geom_global_ids, 0] = dynamic_frictions
+        # TODO: mujoco do not differentiate static and dynamic friction?
+        # if geom_friction.shape[-1] > 1:
+        #     geom_friction[:, self.geom_global_ids, 1] = dynamic_frictions
+        # if geom_friction.shape[-1] > 2:
+        #     geom_friction[:, self.geom_global_ids, 2] = dynamic_frictions
+
+        # TODO: this is not restitution
+        # if self._default_solref is not None:
+        #     rest_vals = self._sample_range(self.restitution_range, sample_shape)
+        #     if sample_cols == 1:
+        #         rest_vals = rest_vals.expand(-1, num_geoms)
+        #     geom_solref = model.geom_solref
+        #     solref = self._default_solref.clone()
+        #     # Map restitution to the second solref parameter (damping ratio-like term).
+        #     solref[..., 1] = rest_vals
+        #     geom_solref[:, self.geom_global_ids] = solref
+
+        # Sync CPU model for viewer consistency using env 0 parameters.
+        cpu_model = self.env.sim.mj_model
+        cpu_model.geom_friction[self._geom_global_ids_cpu.numpy(), 0] = (
+            geom_friction[0, self.geom_global_ids, 0].to(device="cpu").numpy()
+        )
+        if geom_friction.shape[-1] > 1:
+            cpu_model.geom_friction[self._geom_global_ids_cpu.numpy(), 1] = (
+                geom_friction[0, self.geom_global_ids, 1].to(device="cpu").numpy()
+            )
+        if geom_friction.shape[-1] > 2:
+            cpu_model.geom_friction[self._geom_global_ids_cpu.numpy(), 2] = (
+                geom_friction[0, self.geom_global_ids, 2].to(device="cpu").numpy()
+            )
+
+        if self._default_solref is not None:
+            cpu_model.geom_solref[self._geom_global_ids_cpu.numpy()] = (
+                model.geom_solref[0, self.geom_global_ids].to(device="cpu").numpy()
+            )
 
 class perturb_body_mass(Randomization):
     def __init__(
@@ -345,42 +362,85 @@ class perturb_body_mass(Randomization):
     ):
         super().__init__(env)
         self.asset: Articulation = self.env.scene["robot"]
+        if not perturb_ranges:
+            raise ValueError("perturb_body_mass requires at least one body range entry.")
 
-        self.body_ids, self.body_names, values = string_utils.resolve_matching_names_values(
+        body_ids, body_names, values = string_utils.resolve_matching_names_values(
             perturb_ranges, self.asset.body_names
         )
-        self.mass_ranges = torch.tensor(values)
-        print(self.body_names)
+        if len(body_ids) == 0:
+            raise ValueError("No bodies matched the provided patterns for mass perturbation.")
+
+        device = self.device
+        self.body_names = body_names
+        self.local_body_ids = torch.as_tensor(body_ids, device=device, dtype=torch.long)
+        self.global_body_ids = self.asset.indexing.body_ids[self.local_body_ids]
+        self.mass_ranges = torch.as_tensor(values, device=device, dtype=torch.float32)
+
+        # Cache default parameters to re-apply scaling from a clean baseline.
+        model = self.env.sim.model
+        self._default_mass = model.body_mass[:, self.global_body_ids].clone()
+        self._default_inertia = model.body_inertia[:, self.global_body_ids].clone()
+
+        # Also cache CPU model indices for synchronization when needed.
+        self._global_body_ids_cpu = self.global_body_ids.to(device="cpu", dtype=torch.long)
 
     def startup(self):
         logging.info(f"Randomize body masses of {self.body_names} upon startup.")
-        masses = self.asset.data.default_mass.clone()
-        inertias = self.asset.data.default_inertia.clone()
-        print(f"Default masses: {masses[0]}")
-        scale = uniform(
-            self.mass_ranges[:, 0].expand_as(masses[:, self.body_ids]),
-            self.mass_ranges[:, 1].expand_as(masses[:, self.body_ids])
+
+        low = self.mass_ranges[:, 0]
+        high = self.mass_ranges[:, 1]
+        rand = torch.rand(self.num_envs, self.local_body_ids.numel(), device=self.device)
+        scale = low + (high - low) * rand
+
+        model = self.env.sim.model
+        new_mass = self._default_mass * scale
+        new_inertia = self._default_inertia * scale.unsqueeze(-1)
+
+        model.body_mass[:, self.global_body_ids] = new_mass
+        model.body_inertia[:, self.global_body_ids] = new_inertia
+
+        # Keep CPU model (used for passive viewer) in sync with env 0 values.
+        cpu_model = self.env.sim.mj_model
+        cpu_model.body_mass[self._global_body_ids_cpu.numpy()] = (
+            model.body_mass[0, self.global_body_ids].to(device="cpu").numpy()
         )
-        masses[:, self.body_ids] *= scale
-        inertias[:, self.body_ids] *= scale.unsqueeze(-1)
-        indices = torch.arange(self.asset.num_instances)
-        self.asset.root_physx_view.set_masses(masses, indices)
-        self.asset.root_physx_view.set_inertias(inertias, indices)
-        assert torch.allclose(self.asset.root_physx_view.get_masses(), masses)
+        cpu_model.body_inertia[self._global_body_ids_cpu.numpy()] = (
+            model.body_inertia[0, self.global_body_ids].to(device="cpu").numpy()
+        )
 
 class perturb_body_com(Randomization):
     def __init__(self, env, body_names, com_range=(-0.05, 0.05)):
         super().__init__(env)
         self.asset: Articulation = self.env.scene["robot"]
-        self.com_range = com_range
         self.body_ids, self.body_names = self.asset.find_bodies(body_names)
-        self.ALL_INDICES = torch.arange(self.asset.num_instances)
-    
+        if len(self.body_ids) == 0:
+            raise ValueError("No bodies matched the provided names for COM perturbation.")
+
+        self.com_range = tuple(com_range)
+        self.local_body_ids = torch.as_tensor(self.body_ids, device=self.device, dtype=torch.long)
+        self.global_body_ids = self.asset.indexing.body_ids[self.local_body_ids]
+        self._global_body_ids_cpu = self.global_body_ids.to(device="cpu", dtype=torch.long)
+
+        model = self.env.sim.model
+        self._default_body_ipos = model.body_ipos[:, self.global_body_ids].clone()
+
     def startup(self):
-        coms = self.asset.root_physx_view.get_coms()
-        rand_offset = sample_uniform((self.asset.num_instances, len(self.body_ids), 3), *self.com_range)
-        coms[:, self.body_ids, :3] += rand_offset
-        self.asset.root_physx_view.set_coms(coms, indices=self.ALL_INDICES)
+        logging.info(f"Randomize COM of bodies {self.body_names} upon startup.")
+
+        num_bodies = self.global_body_ids.numel()
+        low, high = self.com_range
+        offsets = torch.rand(self.num_envs, num_bodies, 3, device=self.device)
+        offsets = low + (high - low) * offsets
+
+        model = self.env.sim.model
+        new_ipos = self._default_body_ipos + offsets
+        model.body_ipos[:, self.global_body_ids] = new_ipos
+
+        cpu_model = self.env.sim.mj_model
+        cpu_model.body_ipos[self._global_body_ids_cpu.numpy()] = (
+            model.body_ipos[0, self.global_body_ids].to(device="cpu").numpy()
+        )
 
 class JointFriction(Randomization):
     def __init__(
@@ -491,7 +551,7 @@ class push(Randomization):
 
     def debug_draw(self):
         self.env.debug_draw.vector(
-            self.asset.data.body_pos_w[:, self.body_indices],
+            self.asset.data.body_link_pos_w[:, self.body_indices],
             self.forces / self.default_mass_total,
             color=(1., 0.8, .4, 1.)
         )
@@ -513,14 +573,14 @@ class drag(Randomization):
         self.forces[env_ids] = 0.
 
     def step(self, substep):
-        lin_vel = self.asset.data.body_lin_vel_w[:, self.body_indices]
+        lin_vel = self.asset.data.body_com_lin_vel_w[:, self.body_indices]
         drag_forces = - lin_vel * self.drag_coeffs
         self.forces = drag_forces * self.default_mass_total
         self.asset.set_external_force_and_torque(self.forces, self.torques, body_ids=self.body_indices)
 
     def debug_draw(self):
         self.env.debug_draw.vector(
-            self.asset.data.body_pos_w[:, self.body_indices],
+            self.asset.data.body_link_pos_w[:, self.body_indices],
             self.forces / self.default_mass_total * 100,
             color=(0.6, 0.8, 0.6, 1.)
         )
@@ -553,14 +613,14 @@ class stumble(Randomization):
 
     def step(self, substep):
         # feet_height = self.asset.data.feet_height_map.mean(-1).reshape(-1)
-        feet_lin_vel_w = self.asset.data.body_lin_vel_w[:, self.body_ids]
-        feet_quat_w = self.asset.data.body_quat_w[:, self.body_ids]
+        feet_lin_vel_w = self.asset.data.body_com_lin_vel_w[:, self.body_ids]
+        feet_quat_w = self.asset.data.body_link_quat_w[:, self.body_ids]
         stumble_prob = ((self.stumble_height - self.feet_height) / self.stumble_height).clamp(0., 1.)
         self.forces_w = - self.friction_coef * feet_lin_vel_w / self.env.physics_dt
         self.forces_w[..., 2] = 0.
         friction_forces = torch.where(
             (torch.rand_like(self.feet_height) < stumble_prob).unsqueeze(-1),
-            quat_rotate_inverse(feet_quat_w, self.forces_w),
+            quat_apply_inverse(feet_quat_w, self.forces_w),
             torch.zeros(self.num_envs, self.num_feet, 3, device=self.env.device)
         )
         forces_b = self.asset._external_force_b.clone()
@@ -570,7 +630,7 @@ class stumble(Randomization):
 
     def debug_draw(self):
         self.env.debug_draw.vector(
-            self.asset.data.body_pos_w[:, self.body_ids],
+            self.asset.data.body_link_pos_w[:, self.body_ids],
             self.forces_w * self.env.physics_dt,
             color=(1., 0.6, 0., 1.)
         )
@@ -628,12 +688,12 @@ class pull(Randomization):
         force =  self.axis * self.drag_magnitude
         self.forces[:] = torch.where(self.apply_drag, force, torch.zeros_like(self.forces))
         self.asset.set_external_force_and_torque(
-            quat_rotate_inverse(self.asset.data.root_quat_w, self.forces).unsqueeze(1), 
+            quat_rotate_inverse(self.asset.data.root_link_quat_w, self.forces).unsqueeze(1), 
             torch.zeros_like(force).unsqueeze(1), [0])
 
     def debug_draw(self):
         self.env.debug_draw.vector(
-            self.asset.data.root_pos_w, 
+            self.asset.data.root_link_pos_w, 
             self.forces / self.default_mass_total, 
             color=(0.6, 0.8, 0.6, 1.)
         )
@@ -664,7 +724,7 @@ class external_force(Randomization):
 
     def step(self, substep):
         self.asset._external_force_b[:, 0] += quat_rotate_inverse(
-            self.asset.data.root_quat_w, 
+            self.asset.data.root_link_quat_w, 
             self.spring_force
         )
         self.asset.has_external_wrench = True
@@ -685,7 +745,7 @@ class external_force(Randomization):
         )
         self.spring_force_setpoint = torch.where(
             sample,
-            self.asset.data.root_pos_w + torch.tensor([-0.5, 0., 0.], device=self.device),
+            self.asset.data.root_link_pos_w + torch.tensor([-0.5, 0., 0.], device=self.device),
             self.spring_force_setpoint + self.spring_end_vel * self.env.step_dt
         )
         self.spring_force_kp = torch.where(
@@ -714,14 +774,14 @@ class external_force(Randomization):
             self.spring_force_max
         )
         self.spring_force = (
-            self.spring_force_kp * (self.spring_force_setpoint - self.asset.data.root_pos_w)
-            + self.spring_force_kd * (0. - self.asset.data.root_lin_vel_w)    
+            self.spring_force_kp * (self.spring_force_setpoint - self.asset.data.root_link_pos_w)
+            + self.spring_force_kd * (0. - self.asset.data.root_com_lin_vel_w)    
         ) * (self.spring_force_time < self.spring_force_duration)
         self.spring_force = clamp_norm(self.spring_force, max=self.spring_force_max)
 
     def debug_draw(self):
         self.env.debug_draw.vector(
-            self.asset.data.root_pos_w,
+            self.asset.data.root_link_pos_w,
             self.spring_force / (20 * 9.81),
             color=(1.0, 0.5, 0.0, 1.0),
             size=3.0,
@@ -760,7 +820,7 @@ class random_pull(Randomization):
 
     def step(self, substep):
         force_w = self.force_w * (self.time_remaining > 0)
-        self.asset._external_force_b[:, 0] += quat_rotate_inverse(self.asset.data.root_quat_w, force_w)
+        self.asset._external_force_b[:, 0] += quat_rotate_inverse(self.asset.data.root_link_quat_w, force_w)
         self.asset._external_torque_b[:, 0] += self.offset_b.cross(force_w, dim=-1)
         self.asset.has_external_wrench = True
     
@@ -784,7 +844,7 @@ class random_pull(Randomization):
 
     def debug_draw(self):
         self.env.debug_draw.vector(
-            self.asset.data.root_pos_w, 
+            self.asset.data.root_link_pos_w, 
             (self.force_w / self.mass_total) * (self.time_remaining > 0), 
             color=(0.6, 0.8, 0.6, 1.)
         )
@@ -818,8 +878,8 @@ class spring_grf(Randomization):
 
     def step(self, substep):
         feet_height = self.asset.data.feet_height
-        feet_quat = self.asset.data.body_quat_w[:, self.feet_ids]
-        feet_lin_vel = self.asset.data.body_lin_vel_w[:, self.feet_ids]
+        feet_quat = self.asset.data.body_link_quat_w[:, self.feet_ids]
+        feet_lin_vel = self.asset.data.body_com_lin_vel_w[:, self.feet_ids]
         forces = (
             self.kp * (self.thres - feet_height) + 
             5. * (0. - feet_lin_vel[:, :, 2])
@@ -829,7 +889,7 @@ class spring_grf(Randomization):
         self.asset.has_external_wrench = True
 
     def debug_draw(self):
-        feet_pos = self.asset.data.body_pos_w[:, self.feet_ids]
+        feet_pos = self.asset.data.body_link_pos_w[:, self.feet_ids]
         self.env.debug_draw.vector(feet_pos, self.forces / 9.81, color=(0.8, 0.6, 0.6, 1.))
 
 
@@ -863,8 +923,8 @@ class impulse(Randomization):
     def step(self, substep):
         forces_b = self.asset._external_force_b
         impulse_force = self.impulse_force.get_force()
-        body_quat_w = self.asset.data.body_link_quat_w[:, self.body_id]
-        ext_force_b = quat_rotate_inverse(body_quat_w, impulse_force)
+        body_link_quat_w = self.asset.data.body_link_quat_w[:, self.body_id]
+        ext_force_b = quat_rotate_inverse(body_link_quat_w, impulse_force)
         forces_b[:, self.body_id] += ext_force_b
         self.asset.has_external_wrench = True
 
@@ -911,7 +971,7 @@ class constant_force(Randomization):
 
     def step(self, substep):
         arange = self.arange
-        quat = self.asset.data.body_quat_w[arange, self.body_id]
+        quat = self.asset.data.body_link_quat_w[arange, self.body_id]
         forces_b = quat_rotate_inverse(
             quat.reshape(self.num_envs, 4),
             self.force.get_force()
@@ -935,7 +995,7 @@ class constant_force(Randomization):
     
     def debug_draw(self):
         self.env.debug_draw.vector(
-            self.asset.data.body_pos_w[torch.arange(self.num_envs, device=self.device), self.body_id],
+            self.asset.data.body_link_pos_w[torch.arange(self.num_envs, device=self.device), self.body_id],
             self.force.get_force() /  9.81,
             color=(1.0, 0.6, 0.0, 1.0),
             size=3.0,

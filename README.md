@@ -39,21 +39,16 @@ This repository contains the official training code of **HDMI: Learning Interact
 conda create -n hdmi python=3.11 -y
 conda activate hdmi
 
-# install isaacsim
-pip install "isaacsim[all,extscache]==5.0.0" --extra-index-url https://pypi.nvidia.com
-isaacsim # test isaacsim
-
-# install isaaclab
-cd ..
-git clone git@github.com:isaac-sim/IsaacLab.git
-cd IsaacLab
-git checkout v2.2.0
-./isaaclab.sh -i none
+# install mjlab (my fork)
+git clone git@github.com:EGalahad/mjlab.git
+cd mjlab
+pip install -e .
 
 # install hdmi
 cd ..
 git clone https://github.com/EGalahad/hdmi
 cd hdmi
+git checkout mjlab
 pip install -e .
 
 ```

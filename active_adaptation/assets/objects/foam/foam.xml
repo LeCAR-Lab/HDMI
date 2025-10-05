@@ -1,0 +1,21 @@
+<mujoco model="foam">
+    <default>
+        <geom contype="1" conaffinity="1" friction="0.8 0.8 0.8" />
+    </default>
+
+    <asset>
+        <material name="white" rgba="1 1 1 1" />
+    </asset>
+
+    <worldbody>
+        <body name="foam" pos="1 0 0.2">
+            <freejoint name="foam_root"/>
+            <geom type="box" size="0.16 0.16 0.09" pos="0 0 -0.09" material="white" mass="0.5"/>
+        </body>
+    </worldbody>
+
+  <sensor>
+    <framepos name="foam_pos" objtype="xbody" objname="foam"/>
+    <framequat name="foam_quat" objtype="xbody" objname="foam"/>
+  </sensor>
+</mujoco>

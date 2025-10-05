@@ -2,16 +2,12 @@ import torch
 import inspect
 import abc
 import weakref
-import isaacsim
-import carb
-import omni
 from typing import Tuple, TYPE_CHECKING, Generic, TypeVar
 from collections import defaultdict
-from isaaclab.utils.math import quat_mul
+from mjlab.third_party.isaaclab.isaaclab.utils.math import quat_mul
 
 
 if TYPE_CHECKING:
-    from isaaclab.assets import Articulation
     from active_adaptation.envs.base import _Env
 
 
@@ -32,9 +28,8 @@ def sample_quat_yaw(size, yaw_range=(0, torch.pi * 2), device: torch.device = "c
 class Command:
     def __init__(self, env, teleop: bool=False) -> None:
         self.env: _Env = env
-        self.asset: Articulation = env.scene["robot"]
+        self.asset = self.env.scene.entities["robot"]
         self.init_root_state = self.asset.data.default_root_state.clone()
-        self.init_root_state[:, 3:7] = self.asset.data.root_state_w[:, 3:7]
         self.init_joint_pos = self.asset.data.default_joint_pos.clone()
         self.init_joint_vel = self.asset.data.default_joint_vel.clone()
         self.teleop = teleop

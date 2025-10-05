@@ -1,8 +1,8 @@
 from active_adaptation.envs.mdp.base import Observation
 
 import torch
-from isaaclab.assets.articulation import Articulation
-from isaaclab.utils.math import quat_apply_inverse, matrix_from_quat, quat_mul, quat_conjugate, yaw_quat
+# from isaaclab.assets.articulation import Articulation
+from mjlab.third_party.isaaclab.isaaclab.utils.math import quat_apply_inverse, matrix_from_quat, quat_mul, quat_conjugate, yaw_quat
 from active_adaptation.utils.math import batchify
 quat_apply_inverse = batchify(quat_apply_inverse)
 
@@ -87,18 +87,18 @@ class body_pos_b_history(_history):
         super().__init__(**kwargs)
 
     def update(self):
-        root_pos_w = self.asset.data.root_link_pos_w.clone()
-        root_quat_w = self.asset.data.root_quat_w
+        root_link_pos_w = self.asset.data.root_link_pos_w.clone()
+        root_link_quat_w = self.asset.data.root_link_quat_w
 
-        root_pos_w_flat = root_pos_w.clone()
-        root_pos_w_flat[..., 2] = 0.0
-        root_quat_w = yaw_quat(root_quat_w)
+        root_link_pos_w_flat = root_link_pos_w.clone()
+        root_link_pos_w_flat[..., 2] = 0.0
+        root_link_quat_w = yaw_quat(root_link_quat_w)
 
-        body_pos_w = self.asset.data.body_link_pos_w[:, self.body_indices]
+        body_link_pos_w = self.asset.data.body_link_pos_w[:, self.body_indices]
 
         body_pos_b = quat_apply_inverse(
-            root_quat_w.unsqueeze(1),
-            body_pos_w - root_pos_w_flat.unsqueeze(1)
+            root_link_quat_w.unsqueeze(1),
+            body_link_pos_w - root_link_pos_w_flat.unsqueeze(1)
         )
         self.obs_this_step[:] = body_pos_b
         super().update()
@@ -114,13 +114,13 @@ class body_lin_vel_b_history(_history):
         super().__init__(**kwargs)
         
     def update(self):
-        root_quat_w = self.asset.data.root_quat_w
-        root_quat_w = yaw_quat(root_quat_w)
+        root_link_quat_w = self.asset.data.root_link_quat_w
+        root_link_quat_w = yaw_quat(root_link_quat_w)
 
-        body_lin_vel_w = self.asset.data.body_link_lin_vel_w[:, self.body_indices]
+        body_link_lin_vel_w = self.asset.data.body_com_lin_vel_w[:, self.body_indices]
         body_lin_vel_b = quat_apply_inverse(
-            root_quat_w.unsqueeze(1),
-            body_lin_vel_w
+            root_link_quat_w.unsqueeze(1),
+            body_link_lin_vel_w
         )
         self.obs_this_step[:] = body_lin_vel_b
         super().update()
@@ -137,13 +137,13 @@ class body_ori_b_history(_history):
         super().__init__(**kwargs)
 
     def update(self):
-        root_quat_w = self.asset.data.root_quat_w
-        root_quat_w_yaw = yaw_quat(root_quat_w)
+        root_link_quat_w = self.asset.data.root_link_quat_w
+        root_link_quat_w_yaw = yaw_quat(root_link_quat_w)
 
-        body_quat_w = self.asset.data.body_link_quat_w[:, self.body_indices]
+        body_link_quat_w = self.asset.data.body_link_quat_w[:, self.body_indices]
         body_quat_b = quat_mul(
-            quat_conjugate(root_quat_w_yaw).unsqueeze(1).expand_as(body_quat_w),
-            body_quat_w
+            quat_conjugate(root_link_quat_w_yaw).unsqueeze(1).expand_as(body_link_quat_w),
+            body_link_quat_w
         )
         body_ori_b = matrix_from_quat(body_quat_b)
         self.obs_this_step[:] = body_ori_b[:, :, :2, :3]
@@ -160,13 +160,13 @@ class body_ang_vel_b_history(_history):
         super().__init__(**kwargs)
         
     def update(self):
-        root_quat_w = self.asset.data.root_quat_w
-        root_quat_w = yaw_quat(root_quat_w)
+        root_link_quat_w = self.asset.data.root_link_quat_w
+        root_link_quat_w = yaw_quat(root_link_quat_w)
 
-        body_ang_vel_w = self.asset.data.body_link_ang_vel_w[:, self.body_indices]
+        body_link_ang_vel_w = self.asset.data.body_com_ang_vel_w[:, self.body_indices]
         body_ang_vel_b = quat_apply_inverse(
-            root_quat_w.unsqueeze(1),
-            body_ang_vel_w
+            root_link_quat_w.unsqueeze(1),
+            body_link_ang_vel_w
         )
         self.obs_this_step[:] = body_ang_vel_b
         super().update()

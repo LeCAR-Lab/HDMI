@@ -4,8 +4,8 @@ from active_adaptation.envs.mdp.base import Termination as BaseTermination
 import torch
 from typing import List
 from omegaconf import ListConfig
-from isaaclab.utils.string import resolve_matching_names
-from isaaclab.utils.math import quat_apply_inverse, yaw_quat, quat_mul, quat_conjugate, axis_angle_from_quat
+from mjlab.third_party.isaaclab.isaaclab.utils.string import resolve_matching_names
+from mjlab.third_party.isaaclab.isaaclab.utils.math import quat_apply_inverse, yaw_quat, quat_mul, quat_conjugate, axis_angle_from_quat
 from active_adaptation.utils.math import batchify
 quat_apply_inverse = batchify(quat_apply_inverse)
 
@@ -40,10 +40,10 @@ class cum_body_pos_error(_cum_error_mixin, RobotTrackTermination):
         self.body_indices_motion = [self.command_manager.tracking_keypoint_names.index(name) for name in self.body_names]
 
     def update(self):
-        ref_body_pos_w = self.command_manager.ref_body_pos_w[:, self.body_indices_motion]
-        robot_body_pos_w = self.command_manager.asset.data.body_link_pos_w[:, self.body_indices_asset]
+        ref_body_link_pos_w = self.command_manager.ref_body_link_pos_w[:, self.body_indices_motion]
+        robot_body_link_pos_w = self.command_manager.asset.data.body_link_pos_w[:, self.body_indices_asset]
         # shape: [num_envs, num_tracking_bodies, 3]
-        body_pos_error = (ref_body_pos_w - robot_body_pos_w).norm(dim=-1)
+        body_pos_error = (ref_body_link_pos_w - robot_body_link_pos_w).norm(dim=-1)
         self.error[:] = body_pos_error.max(dim=1).values
         super().update()
 
@@ -55,10 +55,10 @@ class cum_body_z_error(_cum_error_mixin, RobotTrackTermination):
         self.body_indices_motion = [self.command_manager.tracking_keypoint_names.index(name) for name in self.body_names]
 
     def update(self):
-        ref_body_pos_w = self.command_manager.ref_body_pos_w[:, self.body_indices_motion]
-        robot_body_pos_w = self.command_manager.asset.data.body_link_pos_w[:, self.body_indices_asset]
+        ref_body_link_pos_w = self.command_manager.ref_body_link_pos_w[:, self.body_indices_motion]
+        robot_body_link_pos_w = self.command_manager.asset.data.body_link_pos_w[:, self.body_indices_asset]
         # shape: [num_envs, num_tracking_bodies, 3]
-        body_pos_error = (ref_body_pos_w - robot_body_pos_w)[..., 2].abs()
+        body_pos_error = (ref_body_link_pos_w - robot_body_link_pos_w)[..., 2].abs()
         self.error[:] = body_pos_error.max(dim=1).values
         super().update()
     
@@ -70,10 +70,10 @@ class cum_body_ori_error(_cum_error_mixin, RobotTrackTermination):
         self.body_indices_motion = [self.command_manager.tracking_keypoint_names.index(name) for name in self.body_names]
 
     def update(self):
-        ref_body_quat_w = self.command_manager.ref_body_quat_w[:, self.body_indices_motion]
-        robot_body_quat_w = self.command_manager.asset.data.body_link_quat_w[:, self.body_indices_asset]
+        ref_body_link_quat_w = self.command_manager.ref_body_link_quat_w[:, self.body_indices_motion]
+        robot_body_link_quat_w = self.command_manager.asset.data.body_link_quat_w[:, self.body_indices_asset]
         # shape: [num_envs, num_tracking_bodies, 3]
-        body_quat_diff = quat_mul(quat_conjugate(ref_body_quat_w), robot_body_quat_w)
+        body_quat_diff = quat_mul(quat_conjugate(ref_body_link_quat_w), robot_body_link_quat_w)
         body_ori_error = axis_angle_from_quat(body_quat_diff).norm(dim=-1)
         self.error[:] = body_ori_error.max(dim=1).values
         super().update()
@@ -86,21 +86,21 @@ class cum_body_pos_error_local(_cum_error_mixin, RobotTrackTermination):
         self.body_indices_motion = [self.command_manager.tracking_keypoint_names.index(name) for name in self.body_names]
 
     def update(self):
-        ref_body_pos_w = self.command_manager.ref_body_pos_w[:, self.body_indices_motion]
-        ref_root_pos_w = self.command_manager.ref_root_pos_w[:, None, :].clone()
-        ref_root_quat_w = self.command_manager.ref_root_quat_w[:, None, :]
+        ref_body_link_pos_w = self.command_manager.ref_body_link_pos_w[:, self.body_indices_motion]
+        ref_root_link_pos_w = self.command_manager.ref_root_link_pos_w[:, None, :].clone()
+        ref_root_link_quat_w = self.command_manager.ref_root_link_quat_w[:, None, :]
         
-        robot_body_pos_w = self.command_manager.asset.data.body_link_pos_w[:, self.body_indices_asset]
-        robot_root_pos_w = self.command_manager.asset.data.root_link_pos_w[:, None, :].clone()
-        robot_root_quat_w = self.command_manager.asset.data.root_link_quat_w[:, None, :]
+        robot_body_link_pos_w = self.command_manager.asset.data.body_link_pos_w[:, self.body_indices_asset]
+        robot_root_link_pos_w = self.command_manager.asset.data.root_link_pos_w[:, None, :].clone()
+        robot_root_link_quat_w = self.command_manager.asset.data.root_link_quat_w[:, None, :]
         
-        ref_root_pos_w[..., 2] = 0.0
-        robot_root_pos_w[..., 2] = 0.0
-        ref_root_quat_w = yaw_quat(ref_root_quat_w)
-        robot_root_quat_w = yaw_quat(robot_root_quat_w)
+        ref_root_link_pos_w[..., 2] = 0.0
+        robot_root_link_pos_w[..., 2] = 0.0
+        ref_root_link_quat_w = yaw_quat(ref_root_link_quat_w)
+        robot_root_link_quat_w = yaw_quat(robot_root_link_quat_w)
 
-        ref_body_pos_local = quat_apply_inverse(ref_root_quat_w, ref_body_pos_w - ref_root_pos_w)
-        robot_body_pos_local = quat_apply_inverse(robot_root_quat_w, robot_body_pos_w - robot_root_pos_w)
+        ref_body_pos_local = quat_apply_inverse(ref_root_link_quat_w, ref_body_link_pos_w - ref_root_link_pos_w)
+        robot_body_pos_local = quat_apply_inverse(robot_root_link_quat_w, robot_body_link_pos_w - robot_root_link_pos_w)
 
         # shape: [num_envs, num_tracking_bodies, 3]
         body_pos_error = (ref_body_pos_local - robot_body_pos_local).norm(dim=-1)
@@ -115,17 +115,17 @@ class cum_body_ori_error_local(_cum_error_mixin, RobotTrackTermination):
         self.body_indices_motion = [self.command_manager.tracking_keypoint_names.index(name) for name in self.body_names]
 
     def update(self):
-        ref_body_quat_w = self.command_manager.ref_body_quat_w[:, self.body_indices_motion]
-        ref_root_quat_w = self.command_manager.ref_root_quat_w[:, None, :]
+        ref_body_link_quat_w = self.command_manager.ref_body_link_quat_w[:, self.body_indices_motion]
+        ref_root_link_quat_w = self.command_manager.ref_root_link_quat_w[:, None, :]
         
-        robot_body_quat_w = self.command_manager.asset.data.body_link_quat_w[:, self.body_indices_asset]
-        robot_root_quat_w = self.command_manager.asset.data.root_link_quat_w[:, None, :]
+        robot_body_link_quat_w = self.command_manager.asset.data.body_link_quat_w[:, self.body_indices_asset]
+        robot_root_link_quat_w = self.command_manager.asset.data.root_link_quat_w[:, None, :]
         
-        ref_root_quat_w = yaw_quat(ref_root_quat_w).expand_as(ref_body_quat_w)
-        robot_root_quat_w = yaw_quat(robot_root_quat_w).expand_as(robot_body_quat_w)
+        ref_root_link_quat_w = yaw_quat(ref_root_link_quat_w).expand_as(ref_body_link_quat_w)
+        robot_root_link_quat_w = yaw_quat(robot_root_link_quat_w).expand_as(robot_body_link_quat_w)
 
-        ref_body_quat_local = quat_mul(quat_conjugate(ref_root_quat_w), ref_body_quat_w)
-        robot_body_quat_local = quat_mul(quat_conjugate(robot_root_quat_w), robot_body_quat_w)
+        ref_body_quat_local = quat_mul(quat_conjugate(ref_root_link_quat_w), ref_body_link_quat_w)
+        robot_body_quat_local = quat_mul(quat_conjugate(robot_root_link_quat_w), robot_body_link_quat_w)
 
         # shape: [num_envs, num_tracking_bodies, 3]
         body_quat_diff = quat_mul(quat_conjugate(ref_body_quat_local), robot_body_quat_local)

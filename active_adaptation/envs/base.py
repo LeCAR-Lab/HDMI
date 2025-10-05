@@ -1,4 +1,5 @@
 import torch
+import mujoco
 import numpy as np
 import hydra
 import inspect
@@ -14,20 +15,12 @@ from torchrl.data import (
 from collections import OrderedDict
 
 from abc import abstractmethod
-from typing import NamedTuple, Dict
+from typing import NamedTuple, Dict, Optional
 import time
 
 import active_adaptation
 import active_adaptation.envs.mdp as mdp
 import active_adaptation.utils.symmetry as symmetry_utils
-
-if active_adaptation.get_backend() == "isaac":
-    import isaaclab.sim as sim_utils
-    from isaaclab.terrains.trimesh.utils import make_plane
-    from isaaclab.scene import InteractiveScene
-    from isaaclab.sensors import TiledCamera
-    from isaaclab.utils.warp import convert_to_warp_mesh, raycast_mesh
-    from pxr import UsdGeom, UsdPhysics
 
 
 def parse_name_and_class(s: str):
@@ -73,31 +66,6 @@ class ObsGroup:
     
     # @torch.compile(mode="reduce-overhead")
     def _compute(self) -> torch.Tensor:
-        # if self.name == "amp_obs_" and not hasattr(self, "_exported"):
-        #     obs_metadata = []
-        #     for obs_key, func in self.funcs.items():
-        #         obs = func()
-        #         metadata = {
-        #             "obs_type": obs_key,
-        #             "obs_dim": obs.shape[-1],
-        #         }
-        #         if hasattr(func, "joint_names"):
-        #             metadata["joint_names"] = func.joint_names
-        #         if hasattr(func, "body_names"):
-        #             metadata["body_names"] = func.body_names
-        #         if hasattr(func, 'history_steps'):
-        #             metadata["history_steps"] = list(func.history_steps)
-        #         obs_metadata.append(metadata)
-
-        #     import os
-        #     metadata_folder = "amp_obs/policy"
-        #     metadata_path = f"{metadata_folder}/metadata.json"
-        #     os.makedirs(metadata_folder, exist_ok=True)
-        #     with open(metadata_path, 'w') as f:
-        #         import json
-        #         json.dump(obs_metadata, f, indent=2)
-        #     breakpoint()
-        #     self._exported = True
         # update only if outdated
         tensors = []
         # print(f"Computing observation group: {self.name}")
@@ -129,13 +97,20 @@ class _Env(EnvBase):
         self.cfg = cfg
         self.backend = active_adaptation.get_backend()
 
-        self.scene: InteractiveScene
+        from mjlab.scene import Scene as MJScene
+        from mjlab.sim import Simulation as MJSim
+        self.scene: MJScene
+        self.sim: MJSim
+        self.device = f"cuda:{active_adaptation.get_local_rank()}"
+        self.viewer: Optional[object] = None
         self.setup_scene()
+        self.setup_viewer()
         self._ground_mesh = None
         
         self.max_episode_length = self.cfg.max_episode_length
         self.step_dt = self.cfg.sim.step_dt
-        self.physics_dt = self.sim.get_physics_dt()
+        # self.physics_dt = self.sim.get_physics_dt()
+        self.physics_dt = self.sim_cfg.mujoco.timestep
         self.decimation = int(self.step_dt / self.physics_dt)
         
         print(f"Step dt: {self.step_dt}, physics dt: {self.physics_dt}, decimation: {self.decimation}")
@@ -367,6 +342,97 @@ class _Env(EnvBase):
     
     def setup_scene(self):
         raise NotImplementedError
+
+    def setup_viewer(self) -> None:
+        """Optionally launch a passive MuJoCo viewer for MJLab backend with multi-env rendering."""
+        self._viewer_enabled = False
+        self._viewer_vd: Optional[object] = None
+        self._viewer_vopt: Optional[object] = None
+        self._viewer_pert: Optional[object] = None
+        self._viewer_catmask: Optional[int] = None
+        self.viewer = None
+
+        if self.backend != "mjlab":
+            return
+        
+        if self.cfg.viewer.headless:
+            print("[INFO] Headless mode: not launching MuJoCo viewer.")
+            return
+
+        self.viewer_env_index = 0
+
+        try:
+            import mujoco
+            import mujoco.viewer
+        except ImportError as exc:
+            print(f"[WARN] MuJoCo viewer not available ({exc}).")
+            return
+
+        try:
+            self.viewer: mujoco.viewer.Handle = mujoco.viewer.launch_passive(
+                self.sim.mj_model,
+                self.sim.mj_data,
+                show_left_ui=False,
+                show_right_ui=False,
+            )
+            self._viewer_enabled = True
+            if self.num_envs > 1:
+                self._viewer_vd = mujoco.MjData(self.sim.mj_model)
+            self._viewer_vopt = mujoco.MjvOption()
+            self._viewer_pert = mujoco.MjvPerturb()
+            self._viewer_catmask = mujoco.mjtCatBit.mjCAT_DYNAMIC.value
+            print("[INFO] MuJoCo viewer launched (passive mode).")
+        except Exception as exc:
+            print(f"[WARN] Failed to launch MuJoCo viewer: {exc}")
+
+    def _update_viewer(self, force_sync: bool = False) -> None:
+        if not self._viewer_enabled or self.viewer is None:
+            return
+
+        idx = min(self.viewer_env_index, max(self.num_envs - 1, 0))
+        sim_data = self.sim.data
+        base_qpos = sim_data.qpos[idx].detach().cpu().numpy()
+        base_qvel = sim_data.qvel[idx].detach().cpu().numpy()
+
+        # Render the focused environment.
+        self.sim.mj_data.qpos[:] = base_qpos
+        self.sim.mj_data.qvel[:] = base_qvel
+        mujoco.mj_forward(self.sim.mj_model, self.sim.mj_data)
+
+        # Clear scene geoms so we can append the rest.
+        self.viewer.user_scn.ngeom = 0
+
+        # Overlay remaining environments as ghost geoms.
+        if (
+            self.num_envs > 1
+            and self._viewer_vd is not None
+            and self._viewer_vopt is not None
+            and self._viewer_pert is not None
+            and self._viewer_catmask is not None
+        ):
+            sim_data = self.sim.data
+            for i in range(self.num_envs):
+                if i == idx:
+                    continue
+                try:
+                    qpos_i = sim_data.qpos[i].detach().cpu().numpy()
+                    qvel_i = sim_data.qvel[i].detach().cpu().numpy()
+                except Exception:
+                    continue
+                self._viewer_vd.qpos[:] = qpos_i
+                self._viewer_vd.qvel[:] = qvel_i
+                mujoco.mj_forward(self.sim.mj_model, self._viewer_vd)
+                mujoco.mjv_addGeoms(
+                    self.sim.mj_model,
+                    self._viewer_vd,
+                    self._viewer_vopt,
+                    self._viewer_pert,
+                    self._viewer_catmask,
+                    self.viewer.user_scn,
+                )
+
+        if force_sync or getattr(self.viewer, "is_running", lambda: True)():
+            self.viewer.sync(state_only=True)
     
     def _reset(self, tensordict: TensorDictBase | None = None, **kwargs) -> TensorDictBase:
         start = time.perf_counter()
@@ -379,6 +445,8 @@ class _Env(EnvBase):
         if len(env_ids):
             self._reset_idx(env_ids)
             self.scene.reset(env_ids)
+            # self.scene.write_data_to_sim()
+            # self.sim.forward()
         self.episode_length_buf[env_ids] = 0
         for callback in self._reset_callbacks:
             callback(env_ids)
@@ -460,8 +528,9 @@ class _Env(EnvBase):
             # sum_, cnt = self._perf_ema_update[key]
             # sum_.add_(time_end - time_start)
             # cnt.add_(1.)
-        if self.sim.has_gui():
-            self.sim.render()
+        # TODO: add rendering for mj sim
+        # if self.sim.has_gui():
+        #     self.sim.render()
         self.episode_length_buf.add_(1)
         self.timestamp += 1
         end = time.perf_counter()
@@ -470,16 +539,17 @@ class _Env(EnvBase):
     def _step(self, tensordict: TensorDictBase) -> TensorDictBase:
         start = time.perf_counter()
         for substep in range(self.decimation):
-            for asset in self.scene.articulations.values():
-                if asset.has_external_wrench:
-                    asset._external_force_b.zero_()
-                    asset._external_torque_b.zero_()
-                    asset.has_external_wrench = False
+            # TODO: external wrench only for isaac backend
+            # for asset in self.scene.articulations.values():
+                # if asset.has_external_wrench:
+                #     asset._external_force_b.zero_()
+                #     asset._external_torque_b.zero_()
+                #     asset.has_external_wrench = False
             self.apply_action(tensordict, substep)
             for callback in self._pre_step_callbacks:
                 callback(substep)
             self.scene.write_data_to_sim()
-            self.sim.step(render=False)
+            self.sim.step()
             self.scene.update(self.physics_dt)
             for callback in self._post_step_callbacks:
                 callback(substep)
@@ -509,11 +579,13 @@ class _Env(EnvBase):
         tensordict.set("discount", self.discount.clone())
         tensordict["stats"] = self.stats.clone()
 
-        if self.sim.has_gui():
-            if hasattr(self, "debug_draw"): # isaac only
-                self.debug_draw.clear()
-            for callback in self._debug_draw_callbacks:
-                callback()
+        self._update_viewer()
+
+        # if self.sim.has_gui():
+        #     if hasattr(self, "debug_draw"): # isaac only
+        #         self.debug_draw.clear()
+        #     for callback in self._debug_draw_callbacks:
+        #         callback()
         
         self.ema_cnt = self.ema_cnt * self._stats_ema_decay + 1.
         return tensordict
@@ -545,6 +617,8 @@ class _Env(EnvBase):
             assert not ray_distance.isnan().any()
             return ray_distance.reshape(*bshape)
         elif self.backend == "mujoco":
+            return torch.zeros(pos.shape[:-1], device=self.device)
+        elif self.backend == "mjlab":
             return torch.zeros(pos.shape[:-1], device=self.device)
     
     def _set_seed(self, seed: int = -1):
@@ -594,6 +668,18 @@ class _Env(EnvBase):
 
     def close(self):
         if not self.is_closed:
+            if self.viewer is not None:
+                try:
+                    if getattr(self.viewer, "is_running", lambda: False)():
+                        self.viewer.close()
+                except Exception:
+                    pass
+                self.viewer = None
+                self._viewer_enabled = False
+            self._viewer_vd = None
+            self._viewer_vopt = None
+            self._viewer_pert = None
+            self._viewer_catmask = None
             if self.backend == "isaac":
                 # destructor is order-sensitive
                 del self.scene

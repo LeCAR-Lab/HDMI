@@ -1,7 +1,6 @@
 import os
 import json
 import torch
-from isaaclab.utils import configclass
 
 import active_adaptation
 from active_adaptation.envs.base import _Env
@@ -9,42 +8,19 @@ from active_adaptation.envs.base import _Env
 class SimpleEnv(_Env):
     def __init__(self, cfg):
         super().__init__(cfg)
-        self.robot = self.scene.articulations["robot"]
+        self.robot = self.scene.entities["robot"]
         
-        if self.backend == "isaac" and self.sim.has_gui():
-            from isaaclab.envs.ui import BaseEnvWindow, ViewportCameraController
-            from isaaclab.envs import ViewerCfg
-            # hacks to make IsaacLab happy. we don't use them.
-            self.lookat_env_i = (
-                self.scene._default_env_origins.cpu() 
-                - torch.tensor(self.cfg.viewer.lookat)
-            ).norm(dim=-1).argmin().item()
-            self.cfg.viewer.env_index = self.lookat_env_i
-            self.manager_visualizers = {}
-            self.window = BaseEnvWindow(self, window_name="IsaacLab")
-            self.viewport_camera_controller = ViewportCameraController(
-                self,
-                ViewerCfg(self.cfg.viewer.eye, self.cfg.viewer.lookat, origin_type="env")
-            )
-
-            look_at_env_id = self.lookat_env_i
-            self.sim.set_camera_view(
-                eye=self.scene.env_origins[look_at_env_id].cpu() + torch.as_tensor(self.cfg.viewer.eye),
-                target=self.scene.env_origins[look_at_env_id].cpu() + torch.as_tensor(self.cfg.viewer.lookat)
-            )
-
         self.action_buf: torch.Tensor = self.action_manager.action_buf
         self.last_action: torch.Tensor = self.action_manager.applied_action
 
     def setup_scene(self):
-        import active_adaptation.envs.scene as scene
-
         if active_adaptation.get_backend() == "isaac":
             import isaaclab.sim as sim_utils
             from isaaclab.scene import InteractiveSceneCfg
             from isaaclab.assets import AssetBaseCfg, ArticulationCfg
             from isaaclab.sensors import ContactSensorCfg
             from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
+            from isaaclab.utils import configclass
             from active_adaptation.assets import ROBOTS, OBJECTS, get_asset_meta
             from active_adaptation.envs.terrain import TERRAINS
             
@@ -227,7 +203,7 @@ class SimpleEnv(_Env):
             print(f"Saving asset meta to {path}")
             with open(path, "w") as f:
                 json.dump(asset_meta, f, indent=4)
-        else:
+        elif active_adaptation.get_backend() == "mujoco":
             from active_adaptation.envs.mujoco import MJScene, MJSim
             from active_adaptation.assets_mjcf import ROBOTS
 
@@ -238,6 +214,112 @@ class SimpleEnv(_Env):
             
             self.scene = MJScene(SceneCfg())
             self.sim = MJSim(self.scene)
+        elif active_adaptation.get_backend() == "mjlab":
+            from mjlab.scene import SceneCfg as MJSceneCfg
+
+            env_spacing = self.cfg.viewer.get("env_spacing", 2.0)
+            scene_cfg = MJSceneCfg(num_envs=self.cfg.num_envs, env_spacing=env_spacing)
+            
+            from mjlab.terrains.terrain_importer import TerrainImporterCfg
+            terrain_cfg = TerrainImporterCfg(terrain_type="plane", env_spacing=env_spacing, num_envs=self.cfg.num_envs)
+            scene_cfg.terrain = terrain_cfg
+            
+            # TODO: support different robots
+            # from mjlab.entity import EntityCfg
+            # robot_cfg = EntityCfg()
+            from mjlab.asset_zoo.robots.unitree_g1.g1_constants import G1_ROBOT_CFG
+            robot_cfg = G1_ROBOT_CFG
+            
+            
+            from mjlab.utils.spec_config import ContactSensorCfg as MJContactCfg
+            left_foot_contact_sensor_cfg = MJContactCfg(
+                name="left_foot_self_collision",
+                body1="left_ankle_roll_link",
+                data=("force",),
+                reduce="netforce",
+                num=10,
+            )
+            right_foot_contact_sensor_cfg = MJContactCfg(
+                name="right_foot_self_collision",
+                body1="right_ankle_roll_link",
+                data=("force",),
+                reduce="netforce",
+                num=10,
+            )
+            
+            scene_cfg.entities["robot"] = robot_cfg
+            
+            if "object_asset_name" in self.cfg.command:
+                from active_adaptation.assets.objects_mjlab import OBJECTS_MJLAB
+                obj_name = self.cfg.command.object_asset_name
+                obj_cfg = OBJECTS_MJLAB[obj_name]
+
+                # TODO: now mjlab does not support body1 and body2 in different entities
+                # # add contact sensors to the object
+                # eef_names = self.cfg.command.get("contact_eef_body_name", [])
+                # obj_body_name = self.cfg.command.object_body_name
+                # contact_sensors = []
+                # for eef_name in eef_names:
+                #     contact_sensor_name = f"{eef_name}_{obj_name}_contact_forces"
+                #     contact_sensor_cfg = MJContactCfg(
+                #         name=contact_sensor_name,
+                #         body1=f"{obj_name}/{obj_body_name}",
+                #         body2=f"robot/{eef_name}",
+                #         data=("force",),
+                #         reduce="netforce",
+                #         num=4,
+                #     )
+                #     contact_sensors.append(contact_sensor_cfg)
+                # obj_cfg.sensors = tuple(contact_sensors)
+
+                scene_cfg.entities[obj_name] = obj_cfg
+            
+                # add contact sensors to the scene
+                eef_names = self.cfg.command.get("contact_eef_body_name", [])
+                obj_body_name = self.cfg.command.object_body_name
+                contact_sensor_cfgs = []
+                for eef_name in eef_names:
+                    contact_sensor_name = f"{eef_name}_{obj_name}_contact_forces"
+                    contact_sensor_cfg = MJContactCfg(
+                        name=contact_sensor_name,
+                        body1=f"{obj_name}/{obj_body_name}",
+                        body2=f"robot/{eef_name}",
+                        data=("force",),
+                        reduce="netforce",
+                        num=4,
+                    )
+                    contact_sensor_cfgs.append(contact_sensor_cfg)
+                scene_cfg.sensors = tuple(contact_sensor_cfgs)
+
+            from mjlab.sim import MujocoCfg, SimulationCfg as MJSimCfg
+            self.sim_cfg = sim_cfg = MJSimCfg(
+                nconmax=150_000,
+                njmax=250,
+                mujoco=MujocoCfg(
+                    timestep=self.cfg.sim.mjlab_physics_dt,
+                    iterations=10,
+                    ls_iterations=20,
+                ),
+            )
+            
+            from mjlab.scene import Scene
+            from mjlab.sim.sim import Simulation
+            self.scene = Scene(scene_cfg, device=self.device)
+            sim_cfg.mujoco.edit_spec(self.scene.spec)
+            print(f"[INFO]: Scene manager: {self.scene}")
+
+            self.sim = Simulation(
+                num_envs=self.scene.num_envs,
+                cfg=sim_cfg,
+                model=self.scene.compile(),
+                device=self.device,
+            )
+                    
+            self.scene.initialize(
+                mj_model=self.sim.mj_model,
+                model=self.sim.model,
+                data=self.sim.data,
+            )
 
         
     def _reset_idx(self, env_ids: torch.Tensor):
@@ -252,8 +334,8 @@ class SimpleEnv(_Env):
     def render(self, mode: str="human"):
         # look_at_env_id = self.lookat_env_i
         # self.sim.set_camera_view(
-        #     eye=self.robot.data.root_pos_w[look_at_env_id].cpu() + torch.as_tensor(self.cfg.viewer.eye),
-        #     target=self.robot.data.root_pos_w[look_at_env_id].cpu() + torch.as_tensor(self.cfg.viewer.lookat)
+        #     eye=self.robot.data.root_link_pos_w[look_at_env_id].cpu() + torch.as_tensor(self.cfg.viewer.eye),
+        #     target=self.robot.data.root_link_pos_w[look_at_env_id].cpu() + torch.as_tensor(self.cfg.viewer.lookat)
         # )
         return super().render(mode)
 

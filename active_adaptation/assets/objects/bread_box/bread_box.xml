@@ -1,0 +1,33 @@
+<mujoco model="bread_box">
+  <compiler angle="radian" />
+  
+  <asset>
+    <material name="white_wood" rgba="1 1 1 1" />
+  </asset>
+  
+  <worldbody>
+   <body name="bread_box" pos="0.7 0.0 0.4">
+      <inertial mass="2.0" pos="0.0 0 -0.2" diaginertia="0.0334 0.02167 0.04167"/>
+
+      <freejoint name="bread_box_root" />
+      <site name="bread_box_root" pos="0 0 0" size="0.05" type="sphere" rgba="0.5 0.5 0.5 1"/>
+      <site name="left_hand_contact"  pos="0  0.17 0.14" size="0.02" type="sphere" rgba="1 0 0 1"/>
+      <site name="right_hand_contact" pos="0 -0.17 0.14" size="0.02" type="sphere" rgba="1 0 0 1"/>
+
+      <geom name="bottom" type="box" size="0.09 0.17 0.01" pos="0 0 0" material="white_wood"/>
+
+      <geom type="box" name="side1" pos="-0.08   0    0.13" material="white_wood" size="0.01 0.17 0.13"/>
+      <geom type="box" name="side2" pos=" 0.08   0    0.13" material="white_wood" size="0.01 0.17 0.13"/>
+      <geom type="box" name="side3" pos="0       0.16 0.13" material="white_wood" size="0.09 0.01 0.13"/>
+      <geom type="box" name="side4" pos="0      -0.16 0.13" material="white_wood" size="0.09 0.01 0.13"/>
+
+      <geom type="box" name="handle_left" pos="0  0.17 0.21" material="white_wood" size="0.03 0.02 0.01"/>
+      <geom type="box" name="handle_right" pos="0 -0.17 0.21" material="white_wood" size="0.03 0.02 0.01"/>
+    </body>
+  </worldbody>
+
+  <sensor>
+    <framepos name="bread_box_pos" objtype="xbody" objname="bread_box"/>
+    <framequat name="bread_box_quat" objtype="xbody" objname="bread_box"/>
+  </sensor>
+</mujoco>

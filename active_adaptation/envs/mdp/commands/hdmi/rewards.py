@@ -3,8 +3,8 @@ from active_adaptation.envs.mdp.base import Reward as BaseReward
 
 from typing import List, Dict, Tuple
 from omegaconf import DictConfig, ListConfig
-from isaaclab.utils.string import resolve_matching_names, resolve_matching_names_values
-from isaaclab.utils.math import quat_apply_inverse, quat_mul, quat_conjugate, axis_angle_from_quat, yaw_quat
+from mjlab.third_party.isaaclab.isaaclab.utils.string import resolve_matching_names, resolve_matching_names_values
+from mjlab.third_party.isaaclab.isaaclab.utils.math import quat_apply_inverse, quat_mul, quat_conjugate, axis_angle_from_quat, yaw_quat
 
 import torch
 
@@ -52,7 +52,7 @@ class _tracking_keypoint(TrackReward):
 class keypoint_pos_tracking_product(_tracking_keypoint):
     def compute(self):
         body_pos_asset = self.command_manager.asset.data.body_link_pos_w[:, self.body_indices_asset]
-        body_pos_motion = self.command_manager.ref_body_pos_w[:, self.body_indices_motion]
+        body_pos_motion = self.command_manager.ref_body_link_pos_w[:, self.body_indices_motion]
         diff = body_pos_motion - body_pos_asset
         # shape: [num_envs, num_tracking_bodies, 3]
         error = (diff.norm(dim=-1) - self.tolerance).clamp_min(0.0)
@@ -62,12 +62,12 @@ class keypoint_pos_tracking_product(_tracking_keypoint):
 class keypoint_pos_tracking_local_product(_tracking_keypoint):
     def compute(self):
         body_pos_asset = self.command_manager.asset.data.body_link_pos_w[:, self.body_indices_asset]
-        body_pos_motion = self.command_manager.ref_body_pos_w[:, self.body_indices_motion]
+        body_pos_motion = self.command_manager.ref_body_link_pos_w[:, self.body_indices_motion]
 
-        root_pos_asset = self.command_manager.robot_root_pos_w.clone()
-        root_pos_motion = self.command_manager.ref_root_pos_w.clone()
-        root_quat_asset = self.command_manager.robot_root_quat_w
-        root_quat_motion = self.command_manager.ref_root_quat_w
+        root_pos_asset = self.command_manager.robot_root_link_pos_w.clone()
+        root_pos_motion = self.command_manager.ref_root_link_pos_w.clone()
+        root_quat_asset = self.command_manager.robot_root_link_quat_w
+        root_quat_motion = self.command_manager.ref_root_link_quat_w
         
         root_pos_asset[..., 2] = 0.0
         root_pos_motion[..., 2] = 0.0
@@ -90,12 +90,12 @@ class keypoint_pos_tracking_local_product(_tracking_keypoint):
 
     def debug_draw(self):
         body_pos_asset = self.command_manager.asset.data.body_link_pos_w[:, self.body_indices_asset]
-        body_pos_motion = self.command_manager.ref_body_pos_w[:, self.body_indices_motion]
+        body_pos_motion = self.command_manager.ref_body_link_pos_w[:, self.body_indices_motion]
 
-        root_pos_asset = self.command_manager.robot_root_pos_w.clone()
-        root_pos_motion = self.command_manager.ref_root_pos_w.clone()
-        root_quat_asset = self.command_manager.robot_root_quat_w
-        root_quat_motion = self.command_manager.ref_root_quat_w
+        root_pos_asset = self.command_manager.robot_root_link_pos_w.clone()
+        root_pos_motion = self.command_manager.ref_root_link_pos_w.clone()
+        root_quat_asset = self.command_manager.robot_root_link_quat_w
+        root_quat_motion = self.command_manager.ref_root_link_quat_w
         
         root_pos_asset[..., 2] = 0.0
         root_pos_motion[..., 2] = 0.0
@@ -135,7 +135,7 @@ class keypoint_pos_tracking_local_product(_tracking_keypoint):
 class keypoint_pos_error(_tracking_keypoint):
     def compute(self):
         body_pos_asset = self.command_manager.asset.data.body_link_pos_w[:, self.body_indices_asset]
-        body_pos_motion = self.command_manager.ref_body_pos_w[:, self.body_indices_motion]
+        body_pos_motion = self.command_manager.ref_body_link_pos_w[:, self.body_indices_motion]
         diff = body_pos_motion - body_pos_asset
         # shape: [num_envs, num_tracking_bodies, 3]
         error = (diff.norm(dim=-1) - self.tolerance).clamp_min(0.0)
@@ -145,12 +145,12 @@ class keypoint_pos_error(_tracking_keypoint):
 class keypoint_pos_error_local(_tracking_keypoint):
     def compute(self):
         body_pos_asset = self.command_manager.asset.data.body_link_pos_w[:, self.body_indices_asset]
-        body_pos_motion = self.command_manager.ref_body_pos_w[:, self.body_indices_motion]
+        body_pos_motion = self.command_manager.ref_body_link_pos_w[:, self.body_indices_motion]
 
-        root_pos_asset = self.command_manager.robot_root_pos_w.clone()
-        root_pos_motion = self.command_manager.ref_root_pos_w.clone()
-        root_quat_asset = self.command_manager.robot_root_quat_w
-        root_quat_motion = self.command_manager.ref_root_quat_w
+        root_pos_asset = self.command_manager.robot_root_link_pos_w.clone()
+        root_pos_motion = self.command_manager.ref_root_link_pos_w.clone()
+        root_quat_asset = self.command_manager.robot_root_link_quat_w
+        root_quat_motion = self.command_manager.ref_root_link_quat_w
         
         root_pos_asset[..., 2] = 0.0
         root_pos_motion[..., 2] = 0.0
@@ -174,8 +174,8 @@ class keypoint_pos_error_local(_tracking_keypoint):
 
 class keypoint_ori_tracking_product(_tracking_keypoint):
     def compute(self):
-        body_ori_asset = self.command_manager.asset.data.body_quat_w[:, self.body_indices_asset]
-        body_ori_motion = self.command_manager.ref_body_quat_w[:, self.body_indices_motion]
+        body_ori_asset = self.command_manager.asset.data.body_link_quat_w[:, self.body_indices_asset]
+        body_ori_motion = self.command_manager.ref_body_link_quat_w[:, self.body_indices_motion]
         diff = quat_mul(quat_conjugate(body_ori_motion), body_ori_asset)
         # shape: [num_envs, num_tracking_bodies, 4]
         error = torch.norm(axis_angle_from_quat(diff), dim=-1)
@@ -185,11 +185,11 @@ class keypoint_ori_tracking_product(_tracking_keypoint):
     
 class keypoint_ori_tracking_local_product(_tracking_keypoint):
     def compute(self):
-        body_ori_asset = self.command_manager.asset.data.body_quat_w[:, self.body_indices_asset]
-        body_ori_motion = self.command_manager.ref_body_quat_w[:, self.body_indices_motion]
+        body_ori_asset = self.command_manager.asset.data.body_link_quat_w[:, self.body_indices_asset]
+        body_ori_motion = self.command_manager.ref_body_link_quat_w[:, self.body_indices_motion]
 
-        root_quat_asset = self.command_manager.robot_root_quat_w
-        root_quat_motion = self.command_manager.ref_root_quat_w
+        root_quat_asset = self.command_manager.robot_root_link_quat_w
+        root_quat_motion = self.command_manager.ref_root_link_quat_w
 
         root_quat_asset = yaw_quat(root_quat_asset)
         root_quat_motion = yaw_quat(root_quat_motion)
@@ -209,8 +209,8 @@ class keypoint_ori_tracking_local_product(_tracking_keypoint):
 
 class keypoint_ori_error(_tracking_keypoint):
     def compute(self):
-        body_ori_asset = self.command_manager.asset.data.body_quat_w[:, self.body_indices_asset]
-        body_ori_motion = self.command_manager.ref_body_quat_w[:, self.body_indices_motion]
+        body_ori_asset = self.command_manager.asset.data.body_link_quat_w[:, self.body_indices_asset]
+        body_ori_motion = self.command_manager.ref_body_link_quat_w[:, self.body_indices_motion]
         diff = quat_mul(quat_conjugate(body_ori_motion), body_ori_asset)
         # shape: [num_envs, num_tracking_bodies, 4]
         error = torch.norm(axis_angle_from_quat(diff), dim=-1)
@@ -220,11 +220,11 @@ class keypoint_ori_error(_tracking_keypoint):
     
 class keypoint_ori_error_local(_tracking_keypoint):
     def compute(self):
-        body_ori_asset = self.command_manager.asset.data.body_quat_w[:, self.body_indices_asset]
-        body_ori_motion = self.command_manager.ref_body_quat_w[:, self.body_indices_motion]
+        body_ori_asset = self.command_manager.asset.data.body_link_quat_w[:, self.body_indices_asset]
+        body_ori_motion = self.command_manager.ref_body_link_quat_w[:, self.body_indices_motion]
 
-        root_quat_asset = self.command_manager.robot_root_quat_w
-        root_quat_motion = self.command_manager.ref_root_quat_w
+        root_quat_asset = self.command_manager.robot_root_link_quat_w
+        root_quat_motion = self.command_manager.ref_root_link_quat_w
 
         root_quat_asset = yaw_quat(root_quat_asset)
         root_quat_motion = yaw_quat(root_quat_motion)
@@ -245,7 +245,7 @@ class keypoint_ori_error_local(_tracking_keypoint):
 class keypoint_lin_vel_tracking_product(_tracking_keypoint):
     def compute(self):
         body_lin_vel_asset = self.command_manager.asset.data.body_com_lin_vel_w[:, self.body_indices_asset]
-        body_lin_vel_motion = self.command_manager.ref_body_lin_vel_w[:, self.body_indices_motion]
+        body_lin_vel_motion = self.command_manager.ref_body_com_lin_vel_w[:, self.body_indices_motion]
         diff = body_lin_vel_motion - body_lin_vel_asset
         # shape: [num_envs, num_tracking_bodies, 3]
         error = (diff.norm(dim=-1) - self.tolerance).clamp_min(0.0)
@@ -254,7 +254,7 @@ class keypoint_lin_vel_tracking_product(_tracking_keypoint):
 class keypoint_ang_vel_tracking_product(_tracking_keypoint):
     def compute(self):
         body_ang_vel_asset = self.command_manager.asset.data.body_com_ang_vel_w[:, self.body_indices_asset]
-        body_ang_vel_motion = self.command_manager.ref_body_ang_vel_w[:, self.body_indices_motion]
+        body_ang_vel_motion = self.command_manager.ref_body_com_ang_vel_w[:, self.body_indices_motion]
         diff = body_ang_vel_motion - body_ang_vel_asset
         # shape: [num_envs, num_tracking_bodies, 3]
         error = (diff.norm(dim=-1) - self.tolerance).clamp_min(0.0)

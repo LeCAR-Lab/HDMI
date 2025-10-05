@@ -1,11 +1,11 @@
 from active_adaptation.envs.mdp.base import Observation
 import active_adaptation.utils.symmetry as sym_utils
 
-from isaaclab.utils.math import quat_apply_inverse
+from mjlab.third_party.isaaclab.isaaclab.utils.math import quat_apply_inverse
 import torch
 from typing import TYPE_CHECKING, Tuple, List
 if TYPE_CHECKING:
-    from isaaclab.assets import Articulation
+    from mjlab.entity import Entity as Articulation
     from isaaclab.sensors import ContactSensor
 
 def random_noise(x: torch.Tensor, std: float):
@@ -22,14 +22,14 @@ class root_ang_vel_history(Observation):
         self.update()
     
     def reset(self, env_ids):
-        root_ang_vel_b = self.asset.data.root_ang_vel_b[env_ids]
+        root_ang_vel_b = self.asset.data.root_com_ang_vel_b[env_ids]
         root_ang_vel_b = root_ang_vel_b.unsqueeze(1).expand(-1, self.buffer.shape[1], -1)
         if self.noise_std > 0:
             root_ang_vel_b = random_noise(root_ang_vel_b, self.noise_std)
         self.buffer[env_ids] = root_ang_vel_b
 
     def update(self):
-        root_ang_vel_b = self.asset.data.root_ang_vel_b
+        root_ang_vel_b = self.asset.data.root_com_ang_vel_b
         if self.noise_std > 0:
             root_ang_vel_b = random_noise(root_ang_vel_b, self.noise_std)
         self.buffer = self.buffer.roll(1, dims=1)
@@ -89,7 +89,7 @@ class joint_pos_history(Observation):
         self.joint_ids = torch.tensor(self.joint_ids, device=self.device)
         self.joint_mask = torch.ones(self.num_joints, device=self.device)
         if set_to_zero_joint_names is not None:
-            from isaaclab.utils import resolve_matching_names
+            from mjlab.third_party.isaaclab.isaaclab.utils.string import resolve_matching_names
             set_to_zero_joint_ids, _ = resolve_matching_names(set_to_zero_joint_names, self.joint_names)
             self.joint_mask[set_to_zero_joint_ids] = 0.
         self.joint_mask = self.joint_mask.unsqueeze(0).unsqueeze(0) # [1, 1, J]
@@ -163,7 +163,7 @@ class applied_torque(Observation):
         self.joint_ids, self.joint_names = self.asset.find_joints(joint_names)
     
     def compute(self) -> torch.Tensor:
-        applied_efforts = self.asset.data.applied_torque
+        applied_efforts = self.asset.data.actuator_force
         return applied_efforts[:, self.joint_ids]
     
     def symmetry_transforms(self):
@@ -184,7 +184,7 @@ class last_contact(Observation):
             self.body_ids = torch.as_tensor(self.body_ids)
             self.has_contact = torch.zeros(self.num_envs, len(self.body_ids), 1, dtype=bool)
             self.last_contact_pos_w = torch.zeros(self.num_envs, len(self.body_ids), 3)
-        self.body_pos_w = self.asset.data.body_pos_w[:, self.articulation_body_ids]
+        self.body_link_pos_w = self.asset.data.body_link_pos_w[:, self.articulation_body_ids]
         
     def reset(self, env_ids: torch.Tensor):
         self.has_contact[env_ids] = False
@@ -192,24 +192,24 @@ class last_contact(Observation):
     def update(self):
         first_contact = self.contact_sensor.compute_first_contact(self.env.step_dt)[:, self.body_ids].unsqueeze(-1)
         self.has_contact.logical_or_(first_contact)
-        self.body_pos_w = self.asset.data.body_pos_w[:, self.articulation_body_ids]
+        self.body_link_pos_w = self.asset.data.body_link_pos_w[:, self.articulation_body_ids]
         self.last_contact_pos_w = torch.where(
             first_contact,
-            self.body_pos_w,
+            self.body_link_pos_w,
             self.last_contact_pos_w
         )
     
     def compute(self):
-        distance_xy = (self.body_pos_w[:, :, :2] - self.last_contact_pos_w[:, :, :2]).norm(dim=-1)
-        distance_z = self.body_pos_w[:, :, 2] - self.last_contact_pos_w[:, :, 2]
+        distance_xy = (self.body_link_pos_w[:, :, :2] - self.last_contact_pos_w[:, :, :2]).norm(dim=-1)
+        distance_z = self.body_link_pos_w[:, :, 2] - self.last_contact_pos_w[:, :, 2]
         distance = torch.stack([distance_xy, distance_z], dim=-1)
         return (distance * self.has_contact).reshape(self.num_envs, -1)
 
     def debug_draw(self):
         if self.env.sim.has_gui() and self.env.backend == "isaac":
             self.env.debug_draw.vector(
-                self.body_pos_w,
-                torch.where(self.has_contact, self.last_contact_pos_w, self.body_pos_w) - self.body_pos_w
+                self.body_link_pos_w,
+                torch.where(self.has_contact, self.last_contact_pos_w, self.body_link_pos_w) - self.body_link_pos_w
             )
 
 
@@ -230,10 +230,10 @@ class jacobians_b(Observation):
     def compute(self) -> torch.Tensor:
         jacobian_all = self.asset.root_physx_view.get_jacobians() # [N, B, 6, J]
         jacobian = jacobian_all[:, self.body_ids.unsqueeze(1), :, self.joint_ids.unsqueeze(0)].permute(2, 0, 3, 1) # [N, b, j, 6]
-        root_quat_w = self.asset.data.root_quat_w # [N, 4]
+        root_link_quat_w = self.asset.data.root_link_quat_w # [N, 4]
         # [N, b, 6, j] -> [N, b, j, 6] -> [N, b * j * 2, 3] then rotate
         jacobian_b = jacobian.permute(0, 1, 3, 2).reshape(self.num_envs, -1, 3)
-        jacobian_b = quat_apply_inverse(root_quat_w.unsqueeze(1), jacobian_b)
+        jacobian_b = quat_apply_inverse(root_link_quat_w.unsqueeze(1), jacobian_b)
 
         # # [N, b * j * 2, 3] -> [N, b * j, 6] -> [N, b, j, 6] -> [N, b, 6, j]
         # jacobian_b = jacobian_b.reshape(self.num_envs, len(self.body_ids), -1, 6).permute(0, 1, 3, 2)

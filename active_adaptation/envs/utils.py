@@ -59,6 +59,6 @@ class IsaacCameraControl:
     def update(self):
         if self.focus:
             self.env.sim.set_camera_view(
-                eye=self.robot.data.root_pos_w[self.lookat_env_i].cpu() + torch.ones(3) * self.distance,
-                target=self.robot.data.root_pos_w[self.lookat_env_i].cpu(),
+                eye=self.robot.data.root_link_pos_w[self.lookat_env_i].cpu() + torch.ones(3) * self.distance,
+                target=self.robot.data.root_link_pos_w[self.lookat_env_i].cpu(),
             )

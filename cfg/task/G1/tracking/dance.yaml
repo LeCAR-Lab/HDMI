@@ -1,6 +1,6 @@
 # @package task
 defaults:
-  - base/tracking-base-wbt
+  - base/tracking-base
   - _self_
 
 name: G1Dance1Subject2

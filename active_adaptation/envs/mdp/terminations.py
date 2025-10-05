@@ -148,5 +148,5 @@ class impedance_pos_error(Termination):
         self.asset: Articulation = self.env.scene["robot"]
 
     def __call__(self):
-        error = (self.asset.data.root_pos_w-self.command_manger.des_pos_w)[:, :2].norm(dim=-1, keepdim=True)
+        error = (self.asset.data.root_link_pos_w-self.command_manger.des_pos_w)[:, :2].norm(dim=-1, keepdim=True)
         return error > self.thres

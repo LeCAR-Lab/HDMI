@@ -1,0 +1,31 @@
+<mujoco model="ball">
+    <compiler angle="radian"/>
+
+    <default>
+        <geom contype="1" conaffinity="1" friction="0.8 0.8 0.8" />
+    </default>
+
+    <asset>
+        <texture name="ball_texture" type="2d" file="texture.png" />
+        <material name="ball_mat" texture="ball_texture" />
+        <material name="red_mat" rgba="1 0 0 1"/>
+    </asset>
+
+    <worldbody>
+        <body name="ball" pos="0.8 0 0.4" quat="1 0 0 0">
+            <freejoint name="ball_root"/>
+
+            <geom type="sphere" size="0.32" pos="0 0 0" material="ball_mat" mass="8" friction="1.0"/>
+
+            <geom type="sphere" size="0.02" pos="0 0 0.32" material="red_mat" contype="0" conaffinity="0" />
+            <geom type="sphere" size="0.02" pos="0 0 -0.32" material="red_mat" contype="0" conaffinity="0" />
+            <geom type="sphere" size="0.02" pos="0 0.32 0" material="red_mat" contype="0" conaffinity="0" />
+        </body>
+    </worldbody>
+
+    <sensor>
+        <framepos name="ball_pos" objtype="xbody" objname="ball" />
+        <framequat name="ball_quat" objtype="xbody" objname="ball" />
+    </sensor>
+
+</mujoco>

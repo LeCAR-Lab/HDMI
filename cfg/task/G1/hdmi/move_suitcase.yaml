@@ -49,13 +49,13 @@ command:
     - [0.05, 0.0, 0.0]  # left wrist
     - [0.05, 0.0, 0.0]  # right wrist
 
-randomization:
-  object_body_randomization:
-    static_dynamic_friction_ratio_range: [1.0, 2.0]
-    dynamic_friction_range: [0.3, 0.8]
-    restitution_range: [0.0, 0.2]
-    mass_range: [1.2, 1.8]
+# randomization:
+#   object_body_randomization:
+#     static_dynamic_friction_ratio_range: [1.0, 2.0]
+#     dynamic_friction_range: [0.3, 0.8]
+#     restitution_range: [0.0, 0.2]
+#     mass_range: [1.2, 1.8]
   
-  body_scale:
-    name: "suitcase"
-    scale_range: [0.9, 1.1]
+#   body_scale:
+#     name: "suitcase"
+#     scale_range: [0.9, 1.1]

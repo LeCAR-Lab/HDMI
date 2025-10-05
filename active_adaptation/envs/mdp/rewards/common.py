@@ -1,12 +1,12 @@
 from active_adaptation.envs.mdp.base import Reward
 
 import torch
-from isaaclab.utils.math import quat_apply_inverse
-from isaaclab.utils.string import resolve_matching_names
+from mjlab.third_party.isaaclab.isaaclab.utils.math import quat_apply_inverse
+from mjlab.third_party.isaaclab.isaaclab.utils.string import resolve_matching_names
 
 from typing import TYPE_CHECKING, List
 if TYPE_CHECKING:
-    from isaaclab.assets.articulation import Articulation
+    from mjlab.entity import Entity as Articulation
     from isaaclab.sensors import ContactSensor
     
 class survival(Reward):
@@ -34,9 +34,9 @@ class angvel_xy_l2(Reward):
 
     def update(self):
         if self.body_ids is not None:
-            angvel = self.asset.data.body_ang_vel_w[:, self.body_ids]
+            angvel = self.asset.data.body_link_ang_vel_w[:, self.body_ids]
         else:
-            angvel = self.asset.data.root_ang_vel_w.unsqueeze(1)
+            angvel = self.asset.data.root_com_ang_vel_w.unsqueeze(1)
         self.angvel_w = angvel
 
     def compute(self) -> torch.Tensor:
@@ -55,7 +55,7 @@ class body_upright(Reward):
     
     def compute(self) -> torch.Tensor:
         g = quat_apply_inverse(
-            self.asset.data.body_quat_w[:, self.body_id],
+            self.asset.data.body_link_quat_w[:, self.body_id],
             self.down
         )
         rew = 1. - g[:, :, :2].square().sum(-1)
@@ -84,10 +84,11 @@ class joint_torque_limits(Reward):
         super().__init__(env, weight, enabled)
         self.asset: Articulation = self.env.scene["robot"]
         self.joint_ids, self.joint_names = resolve_matching_names(joint_names, self.asset.joint_names)
-        self.soft_limits = self.asset.data.joint_effort_limits[:, self.joint_ids] * soft_factor
+        limits = self.asset.data.joint_effort_limits[:, self.joint_ids] * soft_factor
+        self.soft_limits = limits
     
     def compute(self) -> torch.Tensor:
-        applied_torque = self.asset.data.applied_torque[:, self.joint_ids]
+        applied_torque = self.asset.data.actuator_force[:, self.joint_ids]
         violation_high = (applied_torque / self.soft_limits - 1.0).clamp_min(0.0)
         violation_low = (-applied_torque / self.soft_limits - 1.0).clamp_min(0.0)
         return - (violation_high + violation_low).sum(dim=1, keepdim=True)

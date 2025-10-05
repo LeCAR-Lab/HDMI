@@ -1,0 +1,25 @@
+<mujoco model="box">
+    <compiler angle="radian" coordinate="local" />
+    
+    <asset>
+        <material name="white" rgba="1 1 1 1" />
+        <material name="red" rgba="1 0 0 1" />
+    </asset>
+
+    <worldbody>
+
+        <body name="box" pos="0.55 0 0" quat="0 0 0 1">
+            <freejoint name="box_root"/>
+            <site name="box_frame" size="0.01" pos="0 0 0"/>
+            <geom type="box" size="0.8 0.4 0.4" pos="-0.8 0 0.4" material="white" mass="8" priority="1" friction="0.5"/>
+
+            <!-- <geom type="sphere" size="0.02" pos="0.0 -0.15 0.75" material="red" mass="0"/>
+            <site name="box_contact_1" pos="0.0 -0.15 0.75" size="0.02" group="1"/> -->
+        </body>
+    </worldbody>
+
+    <sensor>
+        <framepos name="box_pos" objtype="xbody" objname="box" />
+        <framequat name="box_quat" objtype="xbody" objname="box" />
+    </sensor>
+</mujoco>

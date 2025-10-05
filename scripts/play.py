@@ -8,8 +8,6 @@ import datetime
 import re
 from omegaconf import OmegaConf
 
-from isaaclab.app import AppLauncher
-
 from torchrl.envs.utils import set_exploration_type, ExplorationType
 from tensordict.nn import TensorDictSequential
 
@@ -21,9 +19,6 @@ from active_adaptation.utils.wandb import parse_checkpoint_path
 def main(cfg):
     OmegaConf.resolve(cfg)
     OmegaConf.set_struct(cfg, False)
-    
-    app_launcher = AppLauncher(cfg.app)
-    simulation_app = app_launcher.app
 
     from scripts.helpers import EpisodeStats, make_env_policy, ObsNorm, ObsOODDetector
     env, policy, vecnorm = make_env_policy(cfg)
@@ -134,25 +129,9 @@ def main(cfg):
         command = env.command_manager
         cmd_key = "command" if "command" in policy_config["observation"] else "command_"
         command_obs = policy_config["observation"][cmd_key]
-        if cfg.task.command._target_ == "active_adaptation.envs.mdp.commands.motion_tracking.command.MotionTrackingCommand":
-            from active_adaptation.envs.mdp.commands.motion_tracking.command import MotionTrackingCommand
-            command: MotionTrackingCommand
-            assert command.dataset.num_motions == 1
-            motion_duration_second = command.dataset.lengths[0].item() * env.step_dt
-            future_steps = command.future_steps.tolist()
-            tracking_keypoint_names = command.tracking_keypoint_names
-            tracking_joint_names = command.tracking_joint_names
-
-            for obs_key in command_obs:
-                command_obs[obs_key]["motion_duration_second"] = motion_duration_second
-                command_obs[obs_key]["motion_path"] = cfg.task.command.data_path
-                command_obs[obs_key]["future_steps"] = future_steps
-                command_obs[obs_key]["body_names"] = tracking_keypoint_names
-                command_obs[obs_key]["joint_names"] = tracking_joint_names
-                command_obs[obs_key]["root_body_name"] = "pelvis"
-        elif cfg.task.command._target_ == "active_adaptation.envs.mdp.commands.hdmi.command.RobotTracking":
+        if cfg.task.command._target_ == "active_adaptation.envs.mdp.commands.hdmi.command.RobotTracking":
             from active_adaptation.envs.mdp.commands.hdmi.command import RobotTracking
-            command: RobotTracking
+            assert isinstance(command, RobotTracking)
             assert command.dataset.num_motions == 1
 
             tracking_keypoint_names = command.tracking_keypoint_names
@@ -172,8 +151,9 @@ def main(cfg):
                 command_obs[obs_key]["root_body_name"] = root_body_name
         elif cfg.task.command._target_ == "active_adaptation.envs.mdp.commands.hdmi.command.RobotObjectTracking":
             from active_adaptation.envs.mdp.commands.hdmi.command import RobotObjectTracking
-            command: RobotObjectTracking
+            assert isinstance(command, RobotObjectTracking)
             assert command.dataset.num_motions == 1
+
             tracking_keypoint_names = command.tracking_keypoint_names
             tracking_joint_names = command.tracking_joint_names
             motion_duration_second = command.dataset.lengths[0].item() * env.step_dt
@@ -204,27 +184,6 @@ def main(cfg):
                     else:
                         object_obs[obs_key]["object_name"] = object_asset_name
                     object_obs[obs_key]["root_body_name"] = root_body_name
-        elif cfg.task.command._target_ == "active_adaptation.envs.mdp.commands.box_transport.command.BoxTransport":
-            from active_adaptation.envs.mdp.commands.box_transport.command import BoxTransport
-            command: BoxTransport
-            object_asset_name = command.object_asset_name
-            root_body_name = command.root_body_name
-            
-            policy_obs = policy_config["observation"]["policy"]
-            object_obs = ["object_pos_b", "object_ori_b"]
-            for obs_key in object_obs:
-                obs_cfg = policy_obs.get(obs_key, None)
-                if obs_cfg is not None:
-                    obs_cfg["object_name"] = object_asset_name
-                    obs_cfg["root_body_name"] = root_body_name
-
-            ref_contact_obs_cfg = policy_obs.get("ref_contact_pos_b", None)
-            if ref_contact_obs_cfg is not None:
-                ref_contact_obs_cfg["object_name"] = object_asset_name
-                ref_contact_obs_cfg["root_body_name"] = root_body_name
-                contact_target_pos_offset = np.array(cfg.task.command.contact_target_pos_offset).tolist()
-                policy_obs["ref_contact_pos_b"]["contact_target_pos_offset"] = contact_target_pos_offset
-                    
             
         import yaml
         with open(path.replace(".pt", ".yaml"), "w") as f:
@@ -255,7 +214,6 @@ def main(cfg):
                     print(k, torch.mean(v).item())
     
     env.close()
-    simulation_app.close()
 
 
 if __name__ == "__main__":

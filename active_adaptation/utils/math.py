@@ -3,7 +3,7 @@
 
 import torch
 import torch.distributions as D
-from isaaclab.utils.math import (
+from mjlab.third_party.isaaclab.isaaclab.utils.math import (
     yaw_quat,
     wrap_to_pi,
     quat_from_euler_xyz,

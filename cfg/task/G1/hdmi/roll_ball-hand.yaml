@@ -24,17 +24,17 @@ command:
     - [0.1, 0.0, 0.0]  # left wrist
     - [0.1, 0.0, 0.0]  # right wrist
 
-randomization:
-  object_body_randomization:
-    static_dynamic_friction_ratio_range: [1.2, 2.0]
-    dynamic_friction_range: [0.3, 0.8]
-    restitution_range: [0.0, 0.2]
-    mass_range: [2.0, 4.0]
+# randomization:
+#   object_body_randomization:
+#     static_dynamic_friction_ratio_range: [1.2, 2.0]
+#     dynamic_friction_range: [0.3, 0.8]
+#     restitution_range: [0.0, 0.2]
+#     mass_range: [2.0, 4.0]
   
-  body_scale:
-    name: "ball"
-    scale_range: [0.9, 1.1]
-    homogeneous_scale: true
+#   body_scale:
+#     name: "ball"
+#     scale_range: [0.9, 1.1]
+#     homogeneous_scale: true
 
 reward:
   object_tracking:

@@ -2,11 +2,12 @@ import torch
 import numpy as np
 from typing import Dict, Tuple, Union, TYPE_CHECKING
 from tensordict import TensorDictBase
-import isaaclab.utils.string as string_utils
+import mjlab.third_party.isaaclab.isaaclab.utils.string as string_utils
 import active_adaptation.utils.symmetry as symmetry_utils
 
 if TYPE_CHECKING:
-    from isaaclab.assets import Articulation
+    # from isaaclab.assets import Articulation
+    from mjlab.entity import Entity as Articulation
     from active_adaptation.envs.base import _Env
 
 
@@ -116,5 +117,6 @@ class JointPosition(ActionManager):
 
         pos_target = self.default_joint_pos + self.offset
         pos_target[:, self.joint_ids] += self.applied_action * self.action_scaling
-        self.asset.set_joint_position_target(pos_target)
+        # self.asset.set_joint_position_target(pos_target)
+        self.asset.write_joint_position_target_to_sim(pos_target)
         
