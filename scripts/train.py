@@ -1,4 +1,5 @@
 import torch
+
 # import warp
 import hydra
 import numpy as np
@@ -16,6 +17,7 @@ from setproctitle import setproctitle
 
 import active_adaptation as aa
 import mjlab
+
 # from active_adaptation.utils.torchrl import SyncDataCollector
 from torchrl.envs.utils import set_exploration_type, ExplorationType
 from tensordict.nn import TensorDictModuleBase
@@ -32,12 +34,15 @@ torch.backends.cudnn.benchmark = False
 FILE_PATH = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(FILE_PATH, "..", "cfg")
 
+
 @hydra.main(config_path=CONFIG_PATH, config_name="train", version_base=None)
 def main(cfg: DictConfig):
     OmegaConf.resolve(cfg)
     OmegaConf.set_struct(cfg, False)
-    
-    print(f"is_distributed: {aa.is_distributed()}, local_rank: {aa.get_local_rank()}/{aa.get_world_size()}")
+
+    print(
+        f"is_distributed: {aa.is_distributed()}, local_rank: {aa.get_local_rank()}/{aa.get_world_size()}"
+    )
 
     run = wandb.init(
         job_type=cfg.wandb.job_type,
@@ -46,8 +51,10 @@ def main(cfg: DictConfig):
         tags=cfg.wandb.tags,
     )
     run.config.update(OmegaConf.to_container(cfg))
-    
-    default_run_name = f"{cfg.exp_name}-{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M')}"
+
+    default_run_name = (
+        f"{cfg.exp_name}-{datetime.datetime.now().strftime('%Y-%m-%d-%H-%M')}"
+    )
     run_idx = run.name.split("-")[-1]
     run.name = f"{run_idx}-{default_run_name}"
     setproctitle(run.name)
@@ -61,6 +68,7 @@ def main(cfg: DictConfig):
 
     import inspect
     import shutil
+
     source_path = inspect.getfile(policy.__class__)
     target_path = os.path.join(run.dir, source_path.split("/")[-1])
     shutil.copy(source_path, target_path)
@@ -76,12 +84,13 @@ def main(cfg: DictConfig):
     logging.info(f"Log interval: {log_interval} steps")
 
     stats_keys = [
-        k for k in env.reward_spec.keys(True, True) 
+        k
+        for k in env.reward_spec.keys(True, True)
         if isinstance(k, tuple) and k[0] == "stats"
     ]
     episode_stats = EpisodeStats(stats_keys, device=env.device)
 
-    def save(policy, checkpoint_name: str, artifact: bool=False):
+    def save(policy, checkpoint_name: str, artifact: bool = False):
         ckpt_path = os.path.join(run.dir, f"{checkpoint_name}.pt")
         state_dict = OrderedDict()
         state_dict["wandb"] = {"name": run.name, "id": run.id}
@@ -93,8 +102,7 @@ def main(cfg: DictConfig):
         torch.save(state_dict, ckpt_path)
         if artifact:
             artifact = wandb.Artifact(
-                f"{type(env).__name__}-{type(policy).__name__}",
-                type="model"
+                f"{type(env).__name__}-{type(policy).__name__}", type="model"
             )
             artifact.add_file(ckpt_path)
             run.log_artifact(artifact)
@@ -102,6 +110,7 @@ def main(cfg: DictConfig):
         logging.info(f"Saved checkpoint to {str(ckpt_path)}")
 
     assert env.training
+
     def should_save(i):
         if not aa.is_main_process():
             return False
@@ -114,7 +123,16 @@ def main(cfg: DictConfig):
     with torch.inference_mode():
         tmp_carry = rollout_policy(carry.clone(False))
         tmp_td, _ = env.step_and_maybe_reset(tmp_carry.clone(False))
-        tmp_td["next"] = tmp_td["next"].select("done", "terminated", "discount", "reward", "stats", "is_init", "adapt_hx", strict=False)
+        tmp_td["next"] = tmp_td["next"].select(
+            "done",
+            "terminated",
+            "discount",
+            "reward",
+            "stats",
+            "is_init",
+            "adapt_hx",
+            strict=False,
+        )
 
     N = env.num_envs
     T = cfg.algo.train_every
@@ -137,19 +155,34 @@ def main(cfg: DictConfig):
     for i in progress:
         rollout_start = time.perf_counter()
         with torch.inference_mode(), set_exploration_type(ExplorationType.RANDOM):
-            torch.compiler.cudagraph_mark_step_begin() # for compiled policy
+            torch.compiler.cudagraph_mark_step_begin()  # for compiled policy
             env.set_progress(start_iter + i)
             for step in range(cfg.algo.train_every):
                 carry = rollout_policy(carry)
                 td, carry = env.step_and_maybe_reset(carry)
-                td["next"] = td["next"].select("done", "terminated", "discount", "reward", "stats", "is_init", "adapt_hx", strict=False)
+                td["next"] = td["next"].select(
+                    "done",
+                    "terminated",
+                    "discount",
+                    "reward",
+                    "stats",
+                    "is_init",
+                    "adapt_hx",
+                    strict=False,
+                )
                 data_buf[:, step] = td
             policy.critic(data_buf)
             values = data_buf["state_value"]
             data_buf["next", "state_value"] = torch.where(
                 data_buf["next", "done"],
-                values, # a walkaround to avoid storing the next states
-                torch.cat([values[:, 1:], policy.critic(carry.copy())["state_value"].unsqueeze(1)], dim=1)
+                values,  # a walkaround to avoid storing the next states
+                torch.cat(
+                    [
+                        values[:, 1:],
+                        policy.critic(carry.copy())["state_value"].unsqueeze(1),
+                    ],
+                    dim=1,
+                ),
             )
         rollout_time = time.perf_counter() - rollout_start
 
@@ -186,7 +219,9 @@ def main(cfg: DictConfig):
         save(policy, "checkpoint_final", artifact=True)
 
     policy_eval = policy.get_rollout_policy("eval")
-    info, trajs, stats, policy_trajs = evaluate(env, policy_eval, render=cfg.eval_render, seed=cfg.seed)
+    info, trajs, stats, policy_trajs = evaluate(
+        env, policy_eval, render=cfg.eval_render, seed=cfg.seed
+    )
     run.log(info)
 
     wandb.finish()
@@ -197,11 +232,9 @@ def main(cfg: DictConfig):
     project = run.project
     entity = run.entity
     run_path = f"{entity}/{project}/{run_id}"
-    
-    return run_path
 
+    return run_path
 
 
 if __name__ == "__main__":
     main()
-

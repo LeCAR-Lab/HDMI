@@ -32,6 +32,7 @@ dependencies = [
     "torchrl==0.7.0",
     "tensordict==0.7.0",
     "mjlab @ git+ssh://git@github.com/EGalahad/mjlab.git",
+    "loguru",
 ]
 
 [tool.setuptools.packages.find]

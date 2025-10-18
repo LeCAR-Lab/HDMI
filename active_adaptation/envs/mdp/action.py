@@ -58,6 +58,7 @@ class JointPosition(ActionManager):
         self.max_delay = max_delay if max_delay is not None else 0
 
         import omegaconf
+
         if isinstance(alpha, float):
             self.alpha_range = (alpha, alpha)
         elif isinstance(alpha, omegaconf.listconfig.ListConfig):
@@ -78,7 +79,9 @@ class JointPosition(ActionManager):
             self.delay = torch.zeros(self.num_envs, 1, dtype=int)
 
     def resolve(self, spec):
-        return string_utils.resolve_matching_names_values(dict(spec), self.asset.joint_names)
+        return string_utils.resolve_matching_names_values(
+            dict(spec), self.asset.joint_names
+        )
 
     def symmetry_transforms(self):
         transform = symmetry_utils.joint_space_symmetry(self.asset, self.joint_names)
@@ -88,7 +91,9 @@ class JointPosition(ActionManager):
         self.action_buf[env_ids] = 0
         self.applied_action[env_ids] = 0
 
-        delay = torch.randint(self.min_delay, self.max_delay + 1, (len(env_ids), 1), device=self.device)
+        delay = torch.randint(
+            self.min_delay, self.max_delay + 1, (len(env_ids), 1), device=self.device
+        )
         self.delay[env_ids] = delay
         alpha = torch.empty(len(env_ids), 1, device=self.device).uniform_(
             *self.alpha_range
@@ -111,7 +116,9 @@ class JointPosition(ActionManager):
         #     substep = 1, action_dim: 1
         #     substep = 2, action_dim: 0
         #     substep = 3, action_dim: 0
-        action_dim = (self.delay - substep + self.env.decimation - 1) // self.env.decimation
+        action_dim = (
+            self.delay - substep + self.env.decimation - 1
+        ) // self.env.decimation
         action = self.action_buf.take_along_dim(action_dim.unsqueeze(1), dim=-1)
         self.applied_action.lerp_(action.squeeze(-1), self.alpha)
 
@@ -119,4 +126,3 @@ class JointPosition(ActionManager):
         pos_target[:, self.joint_ids] += self.applied_action * self.action_scaling
         # self.asset.set_joint_position_target(pos_target)
         self.asset.write_joint_position_target_to_sim(pos_target)
-        
