@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "active_adaptation"
+version = "0.1.0"
+description = "Active adaptation for robotics"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    {name = "btx0424@SUSTech, Haoyang Weng"}
+]
+keywords = ["robotics", "rl"]
+dependencies = [
+    "hydra-core",
+    "omegaconf",
+    "wandb",
+    "moviepy",
+    "imageio",
+    "einops",
+    "av",  # for moviepy
+    "pandas",
+    "termcolor",
+    "setproctitle",
+    "pygame",  # for game controller
+    "mujoco",
+    "xxhash",
+    "onnxscript==0.3.0",
+    "onnxruntime==1.22.0",
+    "torch==2.7.0",
+    "torchrl==0.7.0",
+    "tensordict==0.7.0",
+    "mjlab @ git+ssh://git@github.com/EGalahad/mjlab.git",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]

@@ -53,6 +53,12 @@ pip install -e .
 
 ```
 
+Alternative way (`uv`)
+
+```bash
+uv sync
+```
+
 ## Train and Evaluate
 
 Teacher policy 
@@ -61,6 +67,9 @@ Teacher policy
 python scripts/train.py algo=ppo_roa_train task=G1/hdmi/move_suitcase
 # evaluate policy
 python scripts/play.py algo=ppo_roa_train task=G1/hdmi/move_suitcase checkpoint_path=run:<wandb-run-path>
+
+# or use uv run
+uv run scripts/train.py algo=ppo_roa_train task=G1/hdmi/move_suitcase
 ```
 
 Student policy
