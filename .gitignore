@@ -191,3 +191,5 @@ scripts/images
 checkpoint*.pt
 test/
 *.csv
+
+OmniRetarget_Dataset/
