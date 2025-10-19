@@ -338,10 +338,10 @@ def main(
         joint_pos = wp.to_torch(env.sim.wp_data.qpos)[:, joint_qpos_addr]
         joint_vel = wp.to_torch(env.sim.wp_data.qvel)[:, joint_qvel_addr]
         motion_frames.append(TensorDict({
-            "body_pos_w": body_link_pos,
-            "body_quat_w": body_link_quat,
-            "body_lin_vel_w": body_com_lin_vel,
-            "body_ang_vel_w": body_com_ang_vel,
+            "body_pos_w": body_link_pos.clone(),
+            "body_quat_w": body_link_quat.clone(),
+            "body_lin_vel_w": body_com_lin_vel.clone(),
+            "body_ang_vel_w": body_com_ang_vel.clone(),
             "joint_pos": joint_pos.squeeze(-1),
             "joint_vel": joint_vel.squeeze(-1),
         }))

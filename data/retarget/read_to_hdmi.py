@@ -1,6 +1,7 @@
 """This is a minimal example of how to read the retargeted data and rollout in HDMI environment (mjlab version)."""
 
 import os
+import time
 
 import active_adaptation
 import cv2
@@ -231,6 +232,12 @@ def main(
 
     # Rollout control sequence
     print(f"Rolling out {ctrl.shape[0]} control steps...")
+    body_names = [env.sim.mj_model.body(i).name for i in range(env.sim.mj_model.nbody)]
+    joint_names = [env.sim.mj_model.joint(i).name for i in range(env.sim.mj_model.njnt) if env.sim.mj_model.joint(i).type == mujoco.mjtJoint.mjJNT_HINGE]
+    joint_qpos_addr = [env.sim.mj_model.joint(i).qposadr for i in range(env.sim.mj_model.njnt) if env.sim.mj_model.joint(i).type == mujoco.mjtJoint.mjJNT_HINGE]
+    joint_qvel_addr = [env.sim.mj_model.joint(i).dofadr for i in range(env.sim.mj_model.njnt) if env.sim.mj_model.joint(i).type == mujoco.mjtJoint.mjJNT_HINGE]
+    
+    motion_frames = []
     for i in range(ctrl.shape[0]):
         # Create tensordict with action
         action = ctrl_torch[i : i + 1]  # Shape: (1, nu)
@@ -242,10 +249,57 @@ def main(
         )
 
         # Step environment (handles decimation, viewer, command manager, etc.)
-        env.step(tensordict)
+        # env.step(tensordict)
 
-        if i % 50 == 0:
+        if i % 1 == 0:
             set_to_env(env, qpos_torch[i], qvel_torch[i], ctrl_torch[i])
+            
+        # read xpos, xmat and cvel to get body link pos/quat and com lin/ang vel
+        env.sim.forward()
+        body_link_pos = wp.to_torch(env.sim.wp_data.xpos)
+        body_link_quat = wp.to_torch(env.sim.wp_data.xquat)
+
+        cvel = wp.to_torch(env.sim.wp_data.cvel)
+        body_com_lin_vel = cvel[..., 3:]
+        body_com_ang_vel = cvel[..., :3]
+        joint_pos = wp.to_torch(env.sim.wp_data.qpos)[:, joint_qpos_addr]
+        joint_vel = wp.to_torch(env.sim.wp_data.qvel)[:, joint_qvel_addr]
+        motion_frames.append(TensorDict({
+            "body_pos_w": body_link_pos.clone(),
+            "body_quat_w": body_link_quat.clone(),
+            "body_lin_vel_w": body_com_lin_vel.clone(),
+            "body_ang_vel_w": body_com_ang_vel.clone(),
+            "joint_pos": joint_pos.squeeze(-1),
+            "joint_vel": joint_vel.squeeze(-1),
+        }))
+    motion_frames = torch.stack(motion_frames, dim=1)  # (num_envs, num_frames, ...)
+    fps = int(1 / env.step_dt)
+    print(f"Saving motion frames with shape: {motion_frames.shape} at {fps} FPS")
+    save_path = "output"
+    # save meta.json with fps and body/joint names
+    # remove / prefix from body/joint names
+    # robot/pelvis -> pelvis
+    body_names = [name.split("/", 1)[-1] for name in body_names]
+    joint_names = [name.split("/", 1)[-1] for name in joint_names]
+    import json
+    meta = {
+        "fps": fps,
+        "body_names": body_names,
+        "joint_names": joint_names,
+    }
+    os.makedirs(save_path, exist_ok=True)
+    with open(os.path.join(save_path, "meta.json"), "w") as f:
+        json.dump(meta, f, indent=4)
+    # save motion_frames as npz
+    motion_frames_np = motion_frames[0].cpu().numpy()
+    object_contact = np.zeros((motion_frames_np["body_pos_w"].shape[0], 1), dtype=np.bool_)
+    object_contact[170:340] = True  # example contact frames
+    # breakpoint()
+    np.savez_compressed(
+        os.path.join(save_path, "motion.npz"),
+        **motion_frames_np,
+        object_contact=object_contact,
+    )
 
     print("Rollout complete!")
 

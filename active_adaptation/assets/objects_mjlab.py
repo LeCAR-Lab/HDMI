@@ -93,6 +93,7 @@ DOOR_CFG = EntityCfg(class_type=CustomEntity, spec_fn=_spec_loader("door", "door
 BOX_CFG = EntityCfg(spec_fn=_spec_loader("box", "box_t1.xml"))
 BOX_SMALL_CFG = EntityCfg(spec_fn=_spec_loader("box", "box.xml"))
 SUITCASE_CFG = EntityCfg(spec_fn=_spec_loader("suitcase", "suitcase.xml"))
+LARGEBOX_CFG = EntityCfg(spec_fn=_spec_loader("largebox", "largebox.xml"))
 FOAM_CFG = EntityCfg(spec_fn=_spec_loader("foam", "foam.xml"))
 STOOL_CFG = EntityCfg(spec_fn=_spec_loader("stool", "stool.xml"))
 STOOL_LOW_CFG = EntityCfg(spec_fn=_spec_loader("stool", "stool-low.xml"))
@@ -115,6 +116,7 @@ OBJECTS_MJLAB = {
     "box": BOX_CFG,
     "box_small": BOX_SMALL_CFG,
     "suitcase": SUITCASE_CFG,
+    "largebox": LARGEBOX_CFG,
     "foam": FOAM_CFG,
     "stool": STOOL_CFG,
     "stool_low": STOOL_LOW_CFG,

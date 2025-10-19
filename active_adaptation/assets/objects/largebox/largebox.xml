@@ -20,8 +20,9 @@
             type="mesh"
             mesh="largebox_mesh"
             rgba="0.7 0.8 0.9 0.7"
-            friction="0.9 0.5 0.5"/> -->
-      <geom type="box" size="0.2 0.3 0.25" pos="0.0 0.0 0.25"/>
+            friction="0.9 0.5 0.5"
+            /> -->
+      <geom type="box" size="0.18 0.18 0.18" pos="0.0 0.0 0" quat="0.95 -0.1 0 0.25"/> 
     </body>
   </worldbody>
 
