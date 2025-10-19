@@ -547,7 +547,8 @@ class push(Randomization):
             push_forces[:, :, 0].uniform_(*self.force_range)
             push_forces[:, :, 1].uniform_(*self.force_range)
             self.forces = torch.where(i, push_forces * self.default_mass_total, self.forces * self.decay)
-        self.asset.set_external_force_and_torque(self.forces, self.torques, body_ids=self.body_indices)
+        # self.asset.set_external_force_and_torque(self.forces, self.torques, body_ids=self.body_indices)
+        self.asset.write_external_wrench_to_sim(self.forces, self.torques, body_ids=self.body_indices)
 
     def debug_draw(self):
         self.env.debug_draw.vector(
@@ -921,12 +922,11 @@ class impulse(Randomization):
         return ImpulseForce.sample(size, self.device, self.impulse_scale, self.duration_range)
         
     def step(self, substep):
-        forces_b = self.asset._external_force_b
+        external_wrench = self.asset.data.body_external_wrench
+        forces_w, torques_w = external_wrench[..., 0:3], external_wrench[..., 3:6]
         impulse_force = self.impulse_force.get_force()
-        body_link_quat_w = self.asset.data.body_link_quat_w[:, self.body_id]
-        ext_force_b = quat_rotate_inverse(body_link_quat_w, impulse_force)
-        forces_b[:, self.body_id] += ext_force_b
-        self.asset.has_external_wrench = True
+        forces_w[:, self.body_id] += impulse_force
+        self.asset.write_external_wrench_to_sim(forces_w, torques_w)
 
     def update(self):
         expire = self.impulse_force.time > self.impulse_force.duration

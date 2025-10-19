@@ -539,12 +539,7 @@ class _Env(EnvBase):
     def _step(self, tensordict: TensorDictBase) -> TensorDictBase:
         start = time.perf_counter()
         for substep in range(self.decimation):
-            # TODO: external wrench only for isaac backend
-            # for asset in self.scene.articulations.values():
-                # if asset.has_external_wrench:
-                #     asset._external_force_b.zero_()
-                #     asset._external_torque_b.zero_()
-                #     asset.has_external_wrench = False
+            self.scene._data.xfrc_applied.zero_()
             self.apply_action(tensordict, substep)
             for callback in self._pre_step_callbacks:
                 callback(substep)

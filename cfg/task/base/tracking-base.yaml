@@ -210,6 +210,10 @@ randomization:
     com_range: [-0.02, 0.02]
   random_joint_offset:
     .*: [-0.01, 0.01]
+  impulse:
+    body_names: "torso_link"
+    impulse_scale: [10, 10, 2]
+    duration_range: [0.2, 1.0]
 
 # Common Termination section
 termination:
