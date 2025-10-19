@@ -40,7 +40,7 @@ def setup_env(task: str = "move_suitcase", max_episode_length: int = 1000):
     cfg = OmegaConf.merge(base_cfg, task_cfg)
 
     # Override with custom parameters for single environment visualization
-    cfg.num_envs = 16  # Single environment
+    cfg.num_envs = 1  # Single environment
     cfg.viewer.headless = False  # Enable visualization
     cfg.viewer.env_spacing = 0.0
 
@@ -118,10 +118,9 @@ def set_to_env(env, qpos, qvel, ctrl):
     """
     qpos_wp = wp.from_torch(qpos.repeat(env.num_envs, 1).float().to(env.device))
     qvel_wp = wp.from_torch(qvel.repeat(env.num_envs, 1).float().to(env.device))
-    ctrl_wp = wp.from_torch(ctrl.repeat(env.num_envs, 1).float().to(env.device))
     wp.copy(env.sim.wp_data.qpos, qpos_wp)
     wp.copy(env.sim.wp_data.qvel, qvel_wp)
-    wp.copy(env.sim.wp_data.ctrl, ctrl_wp)
+    env.action_manager(ctrl, substep=0)
 
 
 def setup_renderer(mj_model: mujoco.MjModel, width: int = 720, height: int = 480):
@@ -233,10 +232,28 @@ def main(
     # Rollout control sequence
     print(f"Rolling out {ctrl.shape[0]} control steps...")
     body_names = [env.sim.mj_model.body(i).name for i in range(env.sim.mj_model.nbody)]
-    joint_names = [env.sim.mj_model.joint(i).name for i in range(env.sim.mj_model.njnt) if env.sim.mj_model.joint(i).type == mujoco.mjtJoint.mjJNT_HINGE]
-    joint_qpos_addr = [env.sim.mj_model.joint(i).qposadr for i in range(env.sim.mj_model.njnt) if env.sim.mj_model.joint(i).type == mujoco.mjtJoint.mjJNT_HINGE]
-    joint_qvel_addr = [env.sim.mj_model.joint(i).dofadr for i in range(env.sim.mj_model.njnt) if env.sim.mj_model.joint(i).type == mujoco.mjtJoint.mjJNT_HINGE]
-    
+    joint_names = [
+        env.sim.mj_model.joint(i).name
+        for i in range(env.sim.mj_model.njnt)
+        if env.sim.mj_model.joint(i).type == mujoco.mjtJoint.mjJNT_HINGE
+    ]
+    joint_qpos_addr = [
+        env.sim.mj_model.joint(i).qposadr
+        for i in range(env.sim.mj_model.njnt)
+        if env.sim.mj_model.joint(i).type == mujoco.mjtJoint.mjJNT_HINGE
+    ]
+    joint_qvel_addr = [
+        env.sim.mj_model.joint(i).dofadr
+        for i in range(env.sim.mj_model.njnt)
+        if env.sim.mj_model.joint(i).type == mujoco.mjtJoint.mjJNT_HINGE
+    ]
+    # Match motors by name
+    joint_motor_idx = [
+        mujoco.mj_name2id(env.sim.mj_model, mujoco.mjtObj.mjOBJ_ACTUATOR, name)
+        for name in joint_names
+    ]
+    assert len(joint_motor_idx) == len(joint_names)
+
     motion_frames = []
     for i in range(ctrl.shape[0]):
         # Create tensordict with action
@@ -253,7 +270,7 @@ def main(
 
         if i % 1 == 0:
             set_to_env(env, qpos_torch[i], qvel_torch[i], ctrl_torch[i])
-            
+
         # read xpos, xmat and cvel to get body link pos/quat and com lin/ang vel
         env.sim.forward()
         body_link_pos = wp.to_torch(env.sim.wp_data.xpos)
@@ -264,14 +281,20 @@ def main(
         body_com_ang_vel = cvel[..., :3]
         joint_pos = wp.to_torch(env.sim.wp_data.qpos)[:, joint_qpos_addr]
         joint_vel = wp.to_torch(env.sim.wp_data.qvel)[:, joint_qvel_addr]
-        motion_frames.append(TensorDict({
-            "body_pos_w": body_link_pos.clone(),
-            "body_quat_w": body_link_quat.clone(),
-            "body_lin_vel_w": body_com_lin_vel.clone(),
-            "body_ang_vel_w": body_com_ang_vel.clone(),
-            "joint_pos": joint_pos.squeeze(-1),
-            "joint_vel": joint_vel.squeeze(-1),
-        }))
+        joint_ctrl = wp.to_torch(env.sim.wp_data.ctrl)[:, joint_motor_idx]
+        motion_frames.append(
+            TensorDict(
+                {
+                    "body_pos_w": body_link_pos.clone(),
+                    "body_quat_w": body_link_quat.clone(),
+                    "body_lin_vel_w": body_com_lin_vel.clone(),
+                    "body_ang_vel_w": body_com_ang_vel.clone(),
+                    "joint_pos": joint_pos.squeeze(-1),
+                    "joint_vel": joint_vel.squeeze(-1),
+                    "joint_ctrl": joint_ctrl.squeeze(-1),
+                }
+            )
+        )
     motion_frames = torch.stack(motion_frames, dim=1)  # (num_envs, num_frames, ...)
     fps = int(1 / env.step_dt)
     print(f"Saving motion frames with shape: {motion_frames.shape} at {fps} FPS")
@@ -282,6 +305,7 @@ def main(
     body_names = [name.split("/", 1)[-1] for name in body_names]
     joint_names = [name.split("/", 1)[-1] for name in joint_names]
     import json
+
     meta = {
         "fps": fps,
         "body_names": body_names,
@@ -292,7 +316,9 @@ def main(
         json.dump(meta, f, indent=4)
     # save motion_frames as npz
     motion_frames_np = motion_frames[0].cpu().numpy()
-    object_contact = np.zeros((motion_frames_np["body_pos_w"].shape[0], 1), dtype=np.bool_)
+    object_contact = np.zeros(
+        (motion_frames_np["body_pos_w"].shape[0], 1), dtype=np.bool_
+    )
     object_contact[170:340] = True  # example contact frames
     # breakpoint()
     np.savez_compressed(

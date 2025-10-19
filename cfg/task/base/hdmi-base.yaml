@@ -166,7 +166,7 @@ observation:
     diff_contact_pos_b:        {}
 
   ref_joint_pos_:
-    ref_joint_pos_action_policy: {}
+    ref_joint_pos_action_policy: {use_joint_ctrl: false}
 
 # Common Reward section
 reward:

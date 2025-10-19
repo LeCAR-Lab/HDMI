@@ -52,6 +52,7 @@ class JointPosition(ActionManager):
             )
         )
         self.action_scaling = torch.tensor(self.action_scaling, device=self.device)
+        print(f"action_scaling: {self.action_scaling}")
         self.action_dim = len(self.joint_ids)
 
         self.min_delay = min_delay if min_delay is not None else 0
