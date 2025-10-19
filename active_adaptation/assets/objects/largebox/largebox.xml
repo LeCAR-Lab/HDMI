@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<mujoco model="largebox">
+  <compiler angle="radian" meshdir="." texturedir="."/>
+  <option gravity="0 0 -9.81"/>
+
+  <asset>
+    <mesh name="largebox_mesh" file="largebox.obj"/>
+  </asset>
+
+  <worldbody>
+    <body name="largebox" pos="0.4 0.0 0.0">
+      <freejoint name="largebox_root"/>
+      <inertial mass="0.1" pos="0 0 0" diaginertia="0.002 0.002 0.002"/>
+
+      <site name="largebox_root" pos="0 0 0" size="0.02" rgba="1 0 0 1"/>
+      <site name="left_hand_contact" pos="0.0 -0.25 0.25" size="0.05" rgba="1 0 0 1"/>
+      <site name="right_hand_contact" pos="0.0 0.25 0.25" size="0.05" rgba="1 0 0 1"/>
+
+      <!-- <geom name="largebox_geom"
+            type="mesh"
+            mesh="largebox_mesh"
+            rgba="0.7 0.8 0.9 0.7"
+            friction="0.9 0.5 0.5"/> -->
+      <geom type="box" size="0.2 0.3 0.25" pos="0.0 0.0 0.25"/>
+    </body>
+  </worldbody>
+
+  <sensor>
+    <framepos name="largebox_pos" objtype="xbody" objname="largebox"/>
+    <framequat name="largebox_quat" objtype="xbody" objname="largebox"/>
+  </sensor>
+</mujoco>

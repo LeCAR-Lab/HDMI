@@ -1,0 +1,36 @@
+# @package task
+defaults:
+  - base/hdmi-base
+  - _self_
+
+name: G1TrackLargebox
+
+viewer:
+  lookat: [0., -1., 0.5]
+  eye: [2., -3, 2.]
+
+max_episode_length: 500
+
+robot:
+  name: g1
+  robot_type: g1_29dof_rubberhand-feet_sphere-eef_box-body_capsule
+  override_params:
+    init_state:
+      joint_pos:
+        left_wrist_yaw_joint: -0.4
+        right_wrist_yaw_joint: 0.4
+
+command:
+  # data_path: data/motion/g1/omomo/sub1_suitcase_011-large_box
+  data_path: data/retarget/output_omni
+  root_body_name: "pelvis"
+
+  object_asset_name: "largebox"
+  object_body_name:  "largebox"
+
+  contact_target_pos_offset:
+    - [-0.1, 0.25, 0.25]
+    - [-0.1,-0.25, 0.25]
+  contact_eef_pos_offset:
+    - [0.05, 0.0, 0.0]
+    - [0.05, 0.0, 0.0]
