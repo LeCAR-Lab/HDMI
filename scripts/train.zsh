@@ -8,6 +8,7 @@ HEADLESS=true
 
 # Experiment 1: Original motion with contact
 uv run scripts/train.py \
+    eval_render=true \
     algo=ppo_roa_train \
     task=G1/hdmi/move_suitcase \
     wandb.mode=online \

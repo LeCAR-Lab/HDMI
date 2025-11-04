@@ -9,7 +9,7 @@ viewer:
   lookat: [0., -1., 0.5]
   eye: [2., -3, 2.]
 
-max_episode_length: 500
+max_episode_length: 120
 
 robot:
   name: g1
